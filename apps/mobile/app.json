@@ -1,0 +1,38 @@
+{
+  "expo": {
+    "name": "Veylo",
+    "slug": "veylo",
+    "scheme": "veylo",
+    "version": "1.0.0",
+    "platforms": ["ios", "android"],
+    "icon": "./assets/icon.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "splash": { "backgroundColor": "#eaf0ed" },
+    "plugins": [
+      "expo-router",
+      "expo-dev-client",
+      "expo-secure-store",
+      ["expo-sqlite", { "useSQLCipher": true }],
+      ["expo-notifications", { "defaultChannel": "reminders" }],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Veylo to use the microphone when you tap to dictate a thought.",
+          "speechRecognitionPermission": "Allow Veylo to transcribe a thought when you tap the microphone.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox", "com.google.android.tts"]
+        }
+      ]
+    ],
+    "experiments": { "typedRoutes": true },
+    "ios": { "supportsTablet": true, "bundleIdentifier": "app.veylo.mobile" },
+    "android": {
+      "package": "app.veylo.mobile",
+      "allowBackup": false,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#e4ece7"
+      }
+    }
+  }
+}

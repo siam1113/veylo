@@ -1,0 +1,178 @@
+services:
+  - type: web
+    name: veylo-web
+    runtime: static
+    buildCommand: npm ci --workspace=@veylo/web --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/web
+    staticPublishPath: apps/web/build/client
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_API_URL
+        value: https://veylo-api.onrender.com
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLISHABLE_KEY
+        sync: false
+
+  - type: web
+    name: veylo-api
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: npm ci --workspace=@veylo/api --workspace=@veylo/db --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/db && npm run build -w @veylo/api
+    startCommand: npm run start -w @veylo/api
+    preDeployCommand: npm run db:migrate
+    healthCheckPath: /ready
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: WEB_ORIGIN
+        value: https://veylo-web.onrender.com
+      - key: CORS_ORIGINS
+        value: https://veylo-web.onrender.com,http://localhost:5173,http://127.0.0.1:5173,http://localhost:4173,http://127.0.0.1:4173,http://localhost:5174,http://127.0.0.1:5174
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_PUBLISHABLE_KEY
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false
+      # Keep existing deployments working until they have switched to the current secret key.
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: veylo-queue
+          type: keyvalue
+          property: connectionString
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/google/callback
+      - key: JIRA_CLIENT_ID
+        sync: false
+      - key: JIRA_CLIENT_SECRET
+        sync: false
+      - key: JIRA_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/jira/callback
+      - key: NOTION_CLIENT_ID
+        sync: false
+      - key: NOTION_CLIENT_SECRET
+        sync: false
+      - key: NOTION_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/notion/callback
+      - key: OUTLOOK_CLIENT_ID
+        sync: false
+      - key: OUTLOOK_CLIENT_SECRET
+        sync: false
+      - key: OUTLOOK_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/outlook/callback
+      - key: CLICKUP_CLIENT_ID
+        sync: false
+      - key: CLICKUP_CLIENT_SECRET
+        sync: false
+      - key: CLICKUP_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/clickup/callback
+      - key: ASANA_CLIENT_ID
+        sync: false
+      - key: ASANA_CLIENT_SECRET
+        sync: false
+      - key: ASANA_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/asana/callback
+      - key: TRELLO_CLIENT_ID
+        sync: false
+      - key: TRELLO_CLIENT_SECRET
+        sync: false
+      - key: TRELLO_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/trello/callback
+      - key: TODOIST_CLIENT_ID
+        sync: false
+      - key: TODOIST_CLIENT_SECRET
+        sync: false
+      - key: TODOIST_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/todoist/callback
+      - key: MICROSOFT_TODO_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_TODO_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_TODO_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/microsoft_todo/callback
+      - key: LINEAR_CLIENT_ID
+        sync: false
+      - key: LINEAR_CLIENT_SECRET
+        sync: false
+      - key: LINEAR_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/linear/callback
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: GITHUB_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/github/callback
+      - key: SLACK_CLIENT_ID
+        sync: false
+      - key: SLACK_CLIENT_SECRET
+        sync: false
+      - key: SLACK_REDIRECT_URI
+        value: https://veylo-api.onrender.com/v1/integrations/slack/callback
+      - key: OAUTH_STATE_SECRET
+        generateValue: true
+      - key: TOKEN_ENCRYPTION_KEY
+        generateValue: true
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: PUSH_SUBSCRIPTION_ENCRYPTION_KEY
+        sync: false
+      - key: METRICS_TOKEN
+        sync: false
+      - key: MOBILE_REDIRECT_URI
+        value: veylo:///
+
+  - type: worker
+    name: veylo-worker
+    runtime: node
+    region: singapore
+    plan: starter
+    buildCommand: npm ci --workspace=@veylo/worker --workspace=@veylo/db --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/db && npm run build -w @veylo/worker
+    startCommand: npm run start -w @veylo/worker
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          name: veylo-queue
+          type: keyvalue
+          property: connectionString
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4.1-mini
+      - key: EXPO_ACCESS_TOKEN
+        sync: false
+      - key: VAPID_PUBLIC_KEY
+        sync: false
+      - key: VAPID_PRIVATE_KEY
+        sync: false
+      - key: VAPID_SUBJECT
+        sync: false
+      - key: PUSH_SUBSCRIPTION_ENCRYPTION_KEY
+        sync: false
+      - key: WORKER_CONCURRENCY
+        value: "4"
+
+  - type: keyvalue
+    name: veylo-queue
+    region: singapore
+    plan: 1g
+    maxmemoryPolicy: noeviction
+    persistenceMode: journal-snapshot
+    ipAllowList: []

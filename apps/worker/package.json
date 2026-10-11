@@ -1,0 +1,29 @@
+{
+  "name": "@veylo/worker",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/worker.ts",
+    "start": "node dist/worker.js",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "eval:capture": "tsx scripts/eval-captures.ts"
+  },
+  "dependencies": {
+    "@veylo/db": "*",
+    "@veylo/domain": "*",
+    "bullmq": "^5.58.5",
+    "dotenv": "^16.6.1",
+    "ioredis": "^5.8.1",
+    "openai": "^5.20.0",
+    "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.6",
+    "@types/web-push": "^3.6.4",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3"
+  }
+}

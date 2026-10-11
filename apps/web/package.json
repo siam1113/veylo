@@ -1,0 +1,35 @@
+{
+  "name": "@veylo/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "react-router dev",
+    "build": "react-router build",
+    "start": "react-router-serve ./build/server/index.js",
+    "test:e2e": "playwright test",
+    "test:editor": "playwright test --config=playwright.editor.config.ts",
+    "typecheck": "react-router typegen && tsc --noEmit"
+  },
+  "dependencies": {
+    "@react-router/node": "^7.9.2",
+    "@react-router/serve": "^7.9.2",
+    "@supabase/supabase-js": "^2.57.4",
+    "@veylo/domain": "*",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-router": "^7.9.2",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "@react-router/dev": "^7.9.2",
+    "@types/node": "^22.18.6",
+    "@types/react": "^19.1.13",
+    "@types/react-dom": "^19.1.9",
+    "@types/three": "^0.186.0",
+    "postgres": "^3.4.7",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7"
+  }
+}

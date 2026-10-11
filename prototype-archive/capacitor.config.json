@@ -1,0 +1,8 @@
+{
+  "appId": "com.veylo.intentions",
+  "appName": "Veylo",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "automatic"
+  }
+}

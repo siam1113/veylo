@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#eaf0ed" />
+    <meta name="description" content="A quiet space to catch a thought, connect it to what matters, and make room for it." />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <link rel="stylesheet" href="status.css" />
+    <title>Veylo — Make room for what matters</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="Main navigation">
+        <a class="brand" href="#home" aria-label="Veylo home"><span class="brand-mark"><i></i><i></i><i></i></span><span>veylo</span></a>
+        <div class="nav-label">Your space</div>
+        <nav class="main-nav">
+          <button class="nav-item active" data-view="space"><span class="nav-icon icon-space">◌</span><span>Living space</span><kbd>1</kbd></button>
+          <button class="nav-item" data-view="explore"><span class="nav-icon">✳</span><span>Explore</span><span class="nav-count" id="explore-count">0</span></button>
+          <button class="nav-item" data-view="align"><span class="nav-icon">⌘</span><span>Align</span></button>
+          <button class="nav-item" data-view="time"><span class="nav-icon">◷</span><span>Time</span></button>
+        </nav>
+        <div class="sidebar-divider"></div>
+        <button class="nav-item suggestion-link" data-view="suggestions"><span class="nav-icon">✧</span><span>Suggestions</span><span class="suggestion-dot"></span></button>
+        <button class="nav-item" data-view="connections"><span class="nav-icon">⌁</span><span>Connections</span></button>
+        <div class="sidebar-spacer"></div>
+        <div class="sidebar-note"><span class="note-spark">✳</span><p>Small steps still move you toward what matters.</p></div>
+        <button class="profile-button" id="settings-open"><span class="avatar">S</span><span class="profile-copy"><b>Your space</b><small>Private by default</small></span><span class="more">···</span></button>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <button class="mobile-brand" data-view="space"><span class="brand-mark"><i></i><i></i><i></i></span>veylo</button>
+          <div class="breadcrumb"><span>Your space</span><span class="crumb-slash">/</span><b id="crumb-current">Living space</b></div>
+          <div class="topbar-actions"><span class="sync-state"><i></i><span>Saved on this device</span></span><button class="icon-button" id="help-button" aria-label="About Veylo">?</button></div>
+        </header>
+        <div class="mobile-tabs" aria-label="Perspectives">
+          <button class="mobile-tab active" data-view="space">Space</button><button class="mobile-tab" data-view="explore">Explore</button><button class="mobile-tab" data-view="align">Align</button><button class="mobile-tab" data-view="time">Time</button><button class="mobile-tab" data-view="connections">Connect</button>
+        </div>
+        <div class="content-wrap">
+          <section class="view active" id="view-space" aria-labelledby="greeting">
+            <div class="welcome-row"><div><div class="date-label" id="today-label"></div><h1 id="greeting">A little room to think.</h1><p class="subhead">Catch what’s on your mind. Let it find its shape later.</p></div><button class="text-button" id="view-all">View all intentions <span>↗</span></button></div>
+            <div class="capture-panel" id="capture-panel">
+              <div class="capture-orbit" aria-hidden="true"><span class="orbit-ring ring-a"></span><span class="orbit-ring ring-b"></span><span class="orbit-core">✳</span></div>
+              <div class="capture-main"><label for="capture-input" class="capture-label">A thought, a question, a maybe…</label><textarea id="capture-input" rows="2" placeholder="“I’d love to make Sunday dinner feel less rushed…”" maxlength="1200"></textarea><div class="capture-bottom"><span class="capture-hint"><span class="return-key">↵</span> saves your thought</span><div class="capture-actions"><button class="mic-button" id="mic-button" aria-label="Record a thought" title="Record a thought"><span>◖</span></button><button class="capture-button" id="capture-submit"><span>Keep this thought</span><span class="capture-arrow">↗</span></button></div></div></div>
+              <div class="capture-footnote"><span class="lock-icon">⌑</span> Just for you. You can decide what it means later.</div>
+            </div>
+            <div class="section-heading"><div><h2>Still with you</h2><p>Thoughts you’ve been carrying lately</p></div><button class="subtle-button" data-view="explore">See all <span>↗</span></button></div>
+            <div class="intention-grid" id="recent-grid"></div>
+            <div class="space-footer"><span class="footer-line"></span><span>Your space moves at your pace</span><span class="footer-line"></span></div>
+          </section>
+
+          <section class="view" id="view-explore" aria-labelledby="explore-title">
+            <div class="page-intro"><div class="page-glyph">✳</div><div><div class="date-label">YOUR THOUGHTS, UNFOLDING</div><h1 id="explore-title">Explore</h1><p class="subhead">Give an idea a little space. Nothing needs to be decided yet.</p></div></div>
+            <div class="toolbar"><div class="filter-pills" id="explore-filters"><button class="filter-pill selected" data-filter="all">All <span id="count-all">0</span></button><button class="filter-pill" data-filter="idea">Ideas</button><button class="filter-pill" data-filter="action">Actions</button><button class="filter-pill" data-filter="question">Questions</button><button class="filter-pill" data-filter="note">Notes</button></div><button class="search-button" id="search-toggle">⌕ <span>Search</span><kbd>⌘ K</kbd></button><input class="search-input hidden" id="search-input" placeholder="Find a thought…" /></div>
+            <div class="explore-list" id="explore-list"></div>
+          </section>
+
+          <section class="view" id="view-align" aria-labelledby="align-title">
+            <div class="page-intro"><div class="page-glyph align-glyph">⌘</div><div><div class="date-label">WHAT’S UNDERNEATH IT</div><h1 id="align-title">Align</h1><p class="subhead">Connect the small things to the reason they matter.</p></div></div>
+            <div class="align-banner"><div class="banner-symbol">◎</div><div><b>Start with what matters to you</b><p>Add a purpose to any intention, and it will gather here with the others.</p></div><button class="outline-button" id="add-purpose">Name a purpose <span>＋</span></button></div>
+            <div id="align-content"></div>
+          </section>
+
+          <section class="view" id="view-time" aria-labelledby="time-title">
+            <div class="page-intro time-intro"><div class="page-glyph time-glyph">◷</div><div><div class="date-label">A LITTLE SPACE TO DO IT</div><h1 id="time-title">Time</h1><p class="subhead">Make a place for your intentions. Keep room for life, too.</p></div></div>
+            <div class="time-toolbar"><div class="week-control"><button class="arrow-button" id="week-prev" aria-label="Previous week">‹</button><b id="week-label"></b><button class="arrow-button" id="week-next" aria-label="Next week">›</button></div><div class="time-views"><button class="time-view active" data-period="week">Week</button><button class="time-view" data-period="month">Month</button><button class="time-view" data-period="year">Year</button></div></div>
+            <div class="week-overview" id="week-overview"></div>
+            <div class="schedule-columns"><div class="schedule-panel"><div class="schedule-heading"><div><h2>Time you’ve set aside</h2><p id="schedule-subtitle">No blocks planned yet. A gentle start is enough.</p></div><button class="outline-button" id="plan-time">＋ <span>Make room</span></button></div><div id="schedule-list" class="schedule-list"></div></div><aside class="unscheduled-panel"><div class="unscheduled-title"><span>◎</span><div><h3>Looking for a moment</h3><p>Ready when you are</p></div></div><div id="unscheduled-list"></div></aside></div>
+          </section>
+
+          <section class="view" id="view-suggestions" aria-labelledby="suggestions-title">
+            <div class="page-intro"><div class="page-glyph suggestion-glyph">✧</div><div><div class="date-label">A QUIET NUDGE, WHEN IT FITS</div><h1 id="suggestions-title">Suggestions</h1><p class="subhead">A few possibilities based on what you’ve saved. Always your call.</p></div></div>
+            <div class="suggestion-explainer"><span>✧</span><p>Suggestions come from your own intentions and plans. Veylo won’t schedule anything without you.</p><button id="suggestion-settings">Preferences</button></div>
+            <div id="suggestion-list" class="suggestion-list"></div>
+          </section>
+
+          <section class="view" id="view-connections" aria-labelledby="connections-title">
+            <div class="page-intro"><div class="page-glyph">⌁</div><div><div class="date-label">YOUR TOOLS, ON YOUR TERMS</div><h1 id="connections-title">Connections</h1><p class="subhead">Choose what Veylo can read. Any change elsewhere needs your say.</p></div></div>
+            <article class="integration-card"><div class="integration-head"><div class="integration-logo google-logo">G</div><div class="integration-title"><h2>Google Calendar</h2><p>See busy times and add only the blocks you approve.</p></div><span class="integration-status" id="google-status"><i></i>Not connected</span></div><div class="integration-permissions"><span>Free/busy availability</span><span>Approved event creation</span></div><div class="integration-setup"><label for="google-client-id">Google OAuth web client ID</label><div class="integration-client-row"><input id="google-client-id" type="text" autocomplete="off" placeholder="Add your client ID to enable connection"><button class="outline-button" id="save-google-client">Save ID</button></div><small>The ID is public app configuration, saved on this device. Veylo never asks for your Google password.</small></div><div class="integration-actions"><button class="capture-button" id="google-connect"><span>Connect Google Calendar</span><span class="capture-arrow">↗</span></button><button class="outline-button" id="google-disconnect" disabled>Disconnect</button><button class="outline-button" id="calendar-refresh" disabled>Check this week’s availability</button></div><div class="availability-result" id="availability-result" aria-live="polite"></div><div class="integration-footnote"><span>⌑</span> Your calendar titles aren’t imported. Availability uses free/busy only. Events are created only when you choose “Add to calendar” on a time block.</div></article>
+            <div class="integration-next"><span>On the roadmap</span><p>Jira and Notion read-only references are planned after the first release, as described in the v1 plan.</p></div>
+          </section>
+        </div>
+      </main>
+    </div>
+
+    <dialog id="detail-dialog" class="detail-dialog"><form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form><div id="detail-content"></div></dialog>
+    <dialog id="schedule-dialog" class="settings-dialog"><form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form><div class="settings-content"><div class="date-label">A LITTLE SPACE FOR IT</div><h2>Make room</h2><p class="settings-lede">Choose an intention and a time that feels possible.</p><div class="detail-fields"><div class="detail-field"><label for="schedule-intention">Intention</label><select id="schedule-intention"></select></div><div class="detail-field"><label for="schedule-date">Date</label><input id="schedule-date" type="date"></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="detail-field"><label for="schedule-time">Start time</label><input id="schedule-time" type="time" value="10:00"></div><div class="detail-field"><label for="schedule-duration">Room to make</label><select id="schedule-duration"><option value="15">15 minutes</option><option value="30" selected>30 minutes</option><option value="45">45 minutes</option><option value="60">1 hour</option><option value="90">1.5 hours</option></select></div></div></div><div class="settings-actions"><button class="outline-button" id="schedule-cancel">Cancel</button><button class="save-detail" id="schedule-save">Set this time aside</button></div></div></dialog>
+    <dialog id="settings-dialog" class="settings-dialog"><form method="dialog"><button class="dialog-close" aria-label="Close">×</button></form><div class="settings-content"><div class="date-label">YOUR SPACE, YOUR RULES</div><h2>Preferences</h2><p class="settings-lede">Veylo keeps your thoughts on this device. Choose what feels right.</p><div class="setting-row"><div><b>Reduced motion</b><small>Keep transitions calm and minimal</small></div><label class="switch"><input id="reduced-motion" type="checkbox"><span></span></label></div><div class="setting-row"><div><b>Suggestions</b><small>Show gentle ideas in your suggestion tray</small></div><label class="switch"><input id="suggestions-enabled" type="checkbox" checked><span></span></label></div><div class="setting-row"><div><b>Daily nudge limit</b><small>No push notifications are sent by this demo</small></div><select id="nudge-limit"><option value="0">Off</option><option value="1">1 per day</option><option value="2" selected>2 per day</option></select></div><div class="settings-actions"><button class="outline-button" id="export-data">Export my thoughts</button><button class="danger-button" id="clear-data">Clear this device</button></div><div class="privacy-note"><span>⌑</span><p>Your data stays in this browser. Voice transcription uses your browser’s speech service when available.</p></div></div></dialog>
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <div class="mobile-capture" id="mobile-capture"><button id="mobile-capture-open"><span>＋</span> Catch a thought</button></div>
+    <script src="app.js" defer></script>
+  </body>
+</html>

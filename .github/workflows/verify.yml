@@ -1,0 +1,66 @@
+name: Verify application
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: veylo
+          POSTGRES_PASSWORD: veylo
+          POSTGRES_DB: veylo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U veylo -d veylo"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.1
+      - name: Install workspace packages
+        run: npm ci --include=dev --no-audit --no-fund
+      - name: Typecheck all packages
+        run: npm run typecheck
+      - name: Test shared domain behavior
+        run: npm run test -w @veylo/domain
+      - name: Test API export privacy contract
+        run: npm run test -w @veylo/api
+      - name: Test worker quiet-hour scheduling
+        run: npm run test -w @veylo/worker
+      - name: Test AI and third-party provider contracts
+        run: npm run test:contracts
+      - name: Apply database migrations and test ownership constraints
+        run: npm run test:db -w @veylo/db
+        env:
+          DATABASE_URL: postgresql://veylo:veylo@localhost:5432/veylo
+          VEYLO_DB_TESTS: '1'
+      - name: Test API persistence, account isolation, and OAuth callback replay protection
+        run: npm run test:integration -w @veylo/api
+        env:
+          DATABASE_URL: postgresql://veylo:veylo@localhost:5432/veylo
+          SUPABASE_URL: https://supabase.test
+          SUPABASE_PUBLISHABLE_KEY: integration-test-only
+          VEYLO_DB_TESTS: '1'
+      - name: Install Chromium for browser acceptance
+        run: npm exec -w @veylo/web -- playwright install --with-deps chromium
+      - name: Exercise authenticated web capture and reload against PostgreSQL
+        run: npm run test:e2e -w @veylo/web
+        env:
+          DATABASE_URL: postgresql://veylo:veylo@localhost:5432/veylo
+      - name: Build all applications
+        run: npm run build

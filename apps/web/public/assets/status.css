@@ -1,0 +1,5 @@
+.sync-state.error { color: #a65e50; }
+.sync-state.error i { background: #c57463; }
+.busy-count { position: absolute; right: 8px; bottom: 7px; z-index: 1; color: #889c90; font-size: 10px; }
+.day-cell.has-calendar-busy .day-capacity { background: #e0d8c6; }
+.day-cell.has-calendar-busy .day-capacity i { background: #bea671; }

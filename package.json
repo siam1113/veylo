@@ -1,0 +1,29 @@
+{
+  "name": "veylo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A private space to capture and shape personal intentions",
+  "packageManager": "npm@10.9.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @veylo/domain && npm run build -w @veylo/db && npm run build -w @veylo/api && npm run build -w @veylo/worker && npm run build -w @veylo/web && npm run build -w @veylo/mobile",
+    "typecheck": "npm run build:shared && npm run typecheck -w @veylo/domain && npm run typecheck -w @veylo/db && npm run typecheck -w @veylo/api && npm run typecheck -w @veylo/worker && npm run typecheck -w @veylo/web && npm run typecheck -w @veylo/mobile",
+    "test:contracts": "npm run test:ai-interpretation -w @veylo/api && npm run test:google-contract -w @veylo/api && npm run test:jira-contract -w @veylo/api && npm run test:notion-contract -w @veylo/api && npm run test:supabase-key -w @veylo/api && npm run test -w @veylo/worker && npm run test -w @veylo/mobile",
+    "build:shared": "npm run build -w @veylo/domain && npm run build -w @veylo/db",
+    "dev:web": "npm run build -w @veylo/domain && npm run dev -w @veylo/web",
+    "dev:api": "npm run build:shared && npm run dev -w @veylo/api",
+    "dev:worker": "npm run build:shared && npm run dev -w @veylo/worker",
+    "dev:mobile": "npm run build -w @veylo/domain && npm run start -w @veylo/mobile",
+    "db:migrate": "npm run db:migrate -w @veylo/db"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "overrides": {
+    "decode-uri-component": "0.5.0",
+    "uuid": "11.1.1"
+  }
+}
