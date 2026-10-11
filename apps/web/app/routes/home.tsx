@@ -8,7 +8,8 @@ import { Connections } from '../components/Connections';
 import { oauthProviders, type ConnectionEntry, type ConnectionStatus, type OAuthProvider } from '../lib/sync.client';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Session, SupabaseClient } from '@supabase/supabase-js';
-import { appendOriginalPiece, initialOriginalVersions, appendVoiceTranscript, calendarAvailabilityMatchesRange, findAvailableSlot, rankIntentionSuggestions, rawCaptureMaxLength } from '@veylo/domain';
+import { appendOriginalPiece, initialOriginalVersions, appendVoiceTranscript, calendarAvailabilityMatchesRange, findAvailableSlot, rankIntentionSuggestions, rawCaptureMaxLength, voiceAgentDefaultName, voiceAgentTones, voiceAgentToneLabels, voiceAgentVoices, type VoiceAgentTone, type VoiceAgentVoice } from '@veylo/domain';
+import { VoicePicker } from '../components/VoicePicker';
 import { CapturePanel } from '../components/CapturePanel';
 import { OriginalThought, OriginalPieces, OriginalGist } from '../components/OriginalThought';
 import { ThoughtTimeline } from '../components/ThoughtTimeline';
@@ -19,14 +20,31 @@ import { ThoughtStatus } from '../components/ThoughtStatus';
 import { TimeCalendar, type TimePeriod } from '../components/TimeCalendar';
 import { dayInterval } from '../components/time-timeline';
 import { OpenSpace, Rhythm, Focus } from '../components/TimePerspectives';
-import { BrainDumpIcon, BrainIcon } from '../components/BrainBackdrop';
+import { BrainDumpIcon } from '../components/BrainBackdrop';
+import { SpaceSchedule, type SpaceUpcomingEntry, type SpaceSuggestionEntry } from '../components/SpaceSchedule';
+import { SpaceHighlights } from '../components/SpaceHighlights';
+import { spaceQuotes } from '../lib/space-quotes';
+import { fetchSpaceHighlights, type SpaceHighlightCard } from '../lib/space-insight.client';
 import { API, authClient } from '../lib/backend.client';
 import { createSyncClient, type SyncClient, type SyncIntention, type SyncBlock, type UserPreferences, type IntentionRelationship, type SuggestionFeedback } from '../lib/sync.client';
+import { VoiceAssistant } from '../components/VoiceAssistant';
+import type { VoiceActions } from '../lib/voice-tools.client';
+import { CommandPalette, type PaletteDestination } from '../components/CommandPalette';
 
 type View = 'space' | 'explore' | 'align' | 'time' | 'suggestions' | 'connections';
 type Block = SyncBlock;
 type Intention = SyncIntention;
 type Preferences = { reduceMotion: boolean; suggestions: boolean; nudgeLimit: number; aiInterpretationEnabled: boolean; quietStart: string | null; quietEnd: string | null; timezone: string | null };
+
+type AppliedTheme = 'light' | 'dark' | 'sepia' | 'midnight';
+type ThemeChoice = AppliedTheme | 'system';
+const themeChoices: readonly ThemeChoice[] = ['light', 'dark', 'sepia', 'midnight', 'system'];
+const themeChoiceLabels: Record<ThemeChoice, string> = { light: 'Light', dark: 'Dark', sepia: 'Sepia', midnight: 'Midnight', system: 'Match device' };
+const themeColor: Record<AppliedTheme, string> = { light: '#eaf0ed', dark: '#1e2823', sepia: '#f5efe0', midnight: '#10131c' };
+const isDarkFamily = (value: AppliedTheme) => value === 'dark' || value === 'midnight';
+
+type AgentSettings = { name: string; tone: VoiceAgentTone; voice: VoiceAgentVoice };
+const defaultAgentSettings: AgentSettings = { name: voiceAgentDefaultName, tone: 'warm', voice: 'marin' };
 
 declare global {
   interface Window {
@@ -43,6 +61,16 @@ const kindNames: Record<string, string> = { idea: 'Idea', action: 'Action', ques
 const kindGlyphs: Record<string, string> = { idea: '✳', action: '↗', question: '?', goal: '◎', commitment: '◷', meeting: '◉', note: '∙', unclassified: '✳' };
 const id = () => crypto.randomUUID();
 const localDate = (date: Date) => new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+const isMacPlatform = () => typeof navigator !== 'undefined' && /Mac|iPhone|iPad|iPod/.test(navigator.platform || navigator.userAgent || '');
+const timeAgo = (iso: string) => {
+  const minute = 60_000, hour = 3_600_000, day = 86_400_000;
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < minute) return 'just now';
+  if (diff < hour) { const n = Math.round(diff / minute); return `${n} minute${n === 1 ? '' : 's'} ago`; }
+  if (diff < day) { const n = Math.round(diff / hour); return `${n} hour${n === 1 ? '' : 's'} ago`; }
+  if (diff < day * 30) { const n = Math.round(diff / day); return `${n} day${n === 1 ? '' : 's'} ago`; }
+  return new Date(iso).toLocaleDateString();
+};
 type CalendarCheck = { start: string; end: string; checkedAt: string };
 const CALENDAR_CHECK_MAX_AGE_MS = 5 * 60_000;
 const calendarCheckIsFresh = (check: CalendarCheck | null, now = Date.now()) => {
@@ -95,7 +123,9 @@ function Brand() { return <div className="brand"><span className="brand-mark"><i
 function Empty({ title, text }: { title: string; text: string }) { return <div className="empty-state"><div className="empty-symbol">✳</div><h3>{title}</h3><p>{text}</p></div>; }
 
 export default function Home() {
-  const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [theme, setTheme] = useState<AppliedTheme>('light');
+  const [themeChoice, setThemeChoiceState] = useState<ThemeChoice>('system');
+  const [agentSettings, setAgentSettingsState] = useState<AgentSettings>(defaultAgentSettings);
   const [session, setSession] = useState<Session | null>(null); const [userId, setUserId] = useState<string | null>(null); const [ready, setReady] = useState(false);
   const syncClient = useRef<SyncClient | null>(null); const loadedUserId = useRef<string | null>(null);
   const oauthCompletionStates = useRef(new Set<string>());
@@ -110,8 +140,10 @@ export default function Home() {
   const [searchParams, setSearchParams] = useSearchParams();
   const accountTab = parseAccountTab(searchParams.get('settings'));
   const [workspaceView, setView] = useState<View>(() => accountTab ? 'explore' : 'space');
-  const view = accountTab ? 'account' : workspaceView; const [filter, setFilter] = useState('all'); const [search, setSearch] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [exploreLayout, setExploreLayout] = useState<'list' | 'gallery'>('list');
-  const [capture, setCapture] = useState(''); const [captureSaving, setCaptureSaving] = useState(false); const [captureFocused, setCaptureFocused] = useState(true); const [captureInputMode, setCaptureInputMode] = useState<'keyboard' | 'microphone'>('keyboard'); const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>(null); const captureInputRef = useRef<HTMLTextAreaElement | null>(null); const capturePanelRef = useRef<HTMLDivElement | null>(null); const [toast, setToast] = useState(''); const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null); const [syncError, setSyncError] = useState(false); const [syncLabel, setSyncLabel] = useState('Saved on this device'); const [syncNowBusy, setSyncNowBusy] = useState(false);
+  const view = accountTab ? 'account' : workspaceView; const [filter, setFilter] = useState('all'); const [search, setSearch] = useState(''); const [searchOpen, setSearchOpen] = useState(false); const [exploreLayout, setExploreLayout] = useState<'list' | 'gallery'>('list'); const [paletteOpen, setPaletteOpen] = useState(false);
+  const [searchShortcutLabel, setSearchShortcutLabel] = useState('Ctrl K');
+  useEffect(() => { setSearchShortcutLabel(isMacPlatform() ? '⌘K' : 'Ctrl K'); }, []);
+  const [capture, setCapture] = useState(''); const [captureSaving, setCaptureSaving] = useState(false); const [captureFocused, setCaptureFocused] = useState(false); const [captureInputMode, setCaptureInputMode] = useState<'keyboard' | 'microphone'>('keyboard'); const [voiceStatus, setVoiceStatus] = useState<VoiceStatus>(null); const captureInputRef = useRef<HTMLTextAreaElement | null>(null); const capturePanelRef = useRef<HTMLDivElement | null>(null); const [toast, setToast] = useState(''); const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null); const [syncError, setSyncError] = useState(false); const [syncLabel, setSyncLabel] = useState('Saved on this device'); const [syncNowBusy, setSyncNowBusy] = useState(false);
   const voiceBaseCapture = useRef('');
   const [prefs, setPrefs] = useState<Preferences>(emptyPrefs); const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [webPushSubscribed, setWebPushSubscribed] = useState(false); const [webPushBusy, setWebPushBusy] = useState(false); const [webPushMessage, setWebPushMessage] = useState('');
@@ -151,33 +183,98 @@ export default function Home() {
 
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
-    const applyTheme = (next: 'light' | 'dark') => {
-      document.documentElement.dataset.theme = next;
-      document.querySelector<HTMLMetaElement>('#veylo-theme-color')?.setAttribute('content', next === 'dark' ? '#1e2823' : '#eaf0ed');
-      setTheme(next);
+    const resolve = (choice: ThemeChoice): AppliedTheme => (choice === 'system' ? (media.matches ? 'dark' : 'light') : choice);
+    const applyResolved = (resolved: AppliedTheme) => {
+      document.documentElement.dataset.theme = resolved;
+      document.querySelector<HTMLMetaElement>('#veylo-theme-color')?.setAttribute('content', themeColor[resolved]);
+      setTheme(resolved);
     };
-    let saved: string | null = null;
-    try { saved = localStorage.getItem('veylo-theme-v1'); } catch { /* Use the device theme when storage is unavailable. */ }
-    if (saved === 'light' || saved === 'dark') {
-      applyTheme(saved);
-      return;
-    }
-    applyTheme(media.matches ? 'dark' : 'light');
+    const readChoice = (): ThemeChoice => {
+      let saved: string | null = null;
+      try { saved = localStorage.getItem('veylo-theme-v1'); } catch { /* Fall back to system when storage is unavailable. */ }
+      return themeChoices.includes(saved as ThemeChoice) ? (saved as ThemeChoice) : 'system';
+    };
+    const choice = readChoice();
+    setThemeChoiceState(choice);
+    applyResolved(resolve(choice));
     const followDeviceTheme = (event: MediaQueryListEvent) => {
-      try { if (localStorage.getItem('veylo-theme-v1')) return; } catch { /* Keep following the device theme. */ }
-      applyTheme(event.matches ? 'dark' : 'light');
+      if (readChoice() !== 'system') return;
+      applyResolved(event.matches ? 'dark' : 'light');
     };
     media.addEventListener('change', followDeviceTheme);
     return () => media.removeEventListener('change', followDeviceTheme);
   }, []);
 
-  function toggleTheme() {
-    const next = theme === 'dark' ? 'light' : 'dark';
-    document.documentElement.dataset.theme = next;
-    document.querySelector<HTMLMetaElement>('#veylo-theme-color')?.setAttribute('content', next === 'dark' ? '#1e2823' : '#eaf0ed');
-    try { localStorage.setItem('veylo-theme-v1', next); } catch { /* The choice still applies for this session. */ }
-    setTheme(next);
+  const [navPosition, setNavPositionState] = useState<'left' | 'right' | 'top' | 'bottom'>('left');
+  const [navCollapsed, setNavCollapsedState] = useState(false);
+
+  useEffect(() => {
+    let savedPosition: string | null = null; let savedCollapsed: string | null = null;
+    try { savedPosition = localStorage.getItem('veylo-nav-position-v1'); savedCollapsed = localStorage.getItem('veylo-nav-collapsed-v1'); } catch { /* Use defaults when storage is unavailable. */ }
+    const position = (['left', 'top', 'right', 'bottom'] as const).includes(savedPosition as never) ? (savedPosition as 'left' | 'top' | 'right' | 'bottom') : 'left';
+    document.documentElement.dataset.navPosition = position;
+    setNavPositionState(position);
+    const collapsed = savedCollapsed === 'true';
+    document.documentElement.dataset.navCollapsed = String(collapsed);
+    setNavCollapsedState(collapsed);
+  }, []);
+
+  function setNavPosition(next: 'left' | 'top' | 'right' | 'bottom') {
+    document.documentElement.dataset.navPosition = next;
+    try { localStorage.setItem('veylo-nav-position-v1', next); } catch { /* Keep the choice for this session only. */ }
+    setNavPositionState(next);
   }
+
+  function toggleNavCollapsed() {
+    const next = !navCollapsed;
+    document.documentElement.dataset.navCollapsed = String(next);
+    try { localStorage.setItem('veylo-nav-collapsed-v1', String(next)); } catch { /* Keep the choice for this session only. */ }
+    setNavCollapsedState(next);
+  }
+
+  function setThemePreference(choice: ThemeChoice) {
+    const resolved = choice === 'system' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : choice;
+    document.documentElement.dataset.theme = resolved;
+    document.querySelector<HTMLMetaElement>('#veylo-theme-color')?.setAttribute('content', themeColor[resolved]);
+    try { localStorage.setItem('veylo-theme-v1', choice); } catch { /* The choice still applies for this session. */ }
+    setThemeChoiceState(choice);
+    setTheme(resolved);
+  }
+
+  // The quick topbar toggle only flips light<->dark, pinning an explicit choice even if the
+  // user was on Sepia/Midnight/System — the full picker lives in Settings > Personalization.
+  function toggleTheme() {
+    setThemePreference(isDarkFamily(theme) ? 'light' : 'dark');
+  }
+
+  function setAgentSettings(next: AgentSettings) {
+    setAgentSettingsState(next);
+    try { localStorage.setItem('veylo-agent-settings-v1', JSON.stringify(next)); } catch { /* Keep the choice for this session only. */ }
+  }
+  useEffect(() => {
+    let saved: string | null = null;
+    try { saved = localStorage.getItem('veylo-agent-settings-v1'); } catch { /* Use defaults when storage is unavailable. */ }
+    if (!saved) return;
+    try {
+      const parsed = JSON.parse(saved) as Partial<AgentSettings>;
+      const name = typeof parsed.name === 'string' && parsed.name.trim() ? parsed.name.trim().slice(0, 30) : defaultAgentSettings.name;
+      const tone = voiceAgentTones.includes(parsed.tone as VoiceAgentTone) ? (parsed.tone as VoiceAgentTone) : defaultAgentSettings.tone;
+      const voice = voiceAgentVoices.includes(parsed.voice as VoiceAgentVoice) ? (parsed.voice as VoiceAgentVoice) : defaultAgentSettings.voice;
+      setAgentSettingsState({ name, tone, voice });
+    } catch { /* Keep defaults when the saved value is malformed. */ }
+  }, []);
+
+  const [spaceHighlightCards, setSpaceHighlightCards] = useState<SpaceHighlightCard[] | null>(null);
+  useEffect(() => {
+    if (view !== 'space' || !prefs.aiInterpretationEnabled) { setSpaceHighlightCards(null); return; }
+    let cancelled = false;
+    const plan = activeItems.flatMap((item) => (item.blocks ?? []).map((block) => ({ item, block }))).filter(({ block }) => block.date === todayString)
+      .map(({ item, block }) => ({ title: item.title, time: block.time }));
+    const done = items.filter((item) => item.status === 'completed' && localDate(new Date(item.updatedAt)) === todayString).map((item) => item.title);
+    const openCount = activeItems.filter((item) => item.status !== 'completed').length;
+    void fetchSpaceHighlights({ hour: today.getHours(), plan, done, openCount }).then((cards) => { if (!cancelled) setSpaceHighlightCards(cards); });
+    return () => { cancelled = true; };
+  }, [view, prefs.aiInterpretationEnabled, items, activeItems, todayString]);
 
   useEffect(() => {
     setDetailTab('polished');
@@ -385,7 +482,7 @@ export default function Home() {
     }
   }, [showToast, signedIn, userId, syncClientReady]);
   useEffect(() => {
-    function keydown(event: KeyboardEvent) { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); changeView('explore'); setSearchOpen(true); setTimeout(() => document.getElementById('search-input')?.focus(), 0); } if (event.defaultPrevented) return; if (event.key === 'Escape') { setDetailId(null); setScheduleOpen(false); } }
+    function keydown(event: KeyboardEvent) { if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') { event.preventDefault(); setPaletteOpen((value) => !value); return; } if (event.defaultPrevented) return; if (event.key === 'Escape') { setDetailId(null); setScheduleOpen(false); } }
     window.addEventListener('keydown', keydown); return () => window.removeEventListener('keydown', keydown);
   }, []);
 
@@ -396,7 +493,8 @@ export default function Home() {
   }
 
   function changeView(next: View) {
-    setSearchParams((previous) => { const params = new URLSearchParams(previous); params.delete('settings'); return params; }); setDumpTarget(null); setDetailId(null); setView(next); setCaptureFocused(next === 'space'); if (next === 'space') { setCaptureInputMode('keyboard'); setVoiceStatus(null); } setSearchOpen(false); }
+    setSearchParams((previous) => { const params = new URLSearchParams(previous); params.delete('settings'); return params; }); setDumpTarget(null); setDetailId(null); setView(next); setCaptureFocused(false); if (next === 'space') { setCaptureInputMode('keyboard'); setVoiceStatus(null); } setSearchOpen(false); }
+  function openDumpNow() { changeView('space'); setCaptureFocused(true); }
   function updateItem(itemId: string, change: (item: Intention) => Intention, message?: string) {
     const next = itemsRef.current.map((item) => {
       if (item.id !== itemId) return item;
@@ -467,6 +565,18 @@ export default function Home() {
       showToast(error instanceof Error ? `Could not save on this device: ${error.message}` : 'Could not save on this device. Check browser storage and try again.');
     } finally { setCaptureSaving(false); }
   }
+  async function createIntentionFromVoice(rawCapture: string): Promise<{ id: string; title: string } | null> {
+    const trimmed = rawCapture.trim(); if (!trimmed) return null;
+    const client = syncClient.current; if (!client) return null;
+    const now = new Date().toISOString();
+    const item: Intention = normalize({ id: id(), rawCapture: trimmed, raw: trimmed, title: titleFrom(trimmed), kind: inferKind(trimmed), status: 'captured', createdAt: now, updatedAt: now, intent: '', purpose: '', desiredOutcome: '', roughPlan: '', blocks: [], syncState: 'pending' });
+    const next = [item, ...itemsRef.current].map((entry) => normalize(entry));
+    await client.queue(next);
+    itemsRef.current = next; setItems(next); setSyncError(false);
+    try { localStorage.setItem(`veylo-intentions-v1:${userId}`, JSON.stringify(next)); } catch { /* IndexedDB is the durable local copy. */ }
+    showToast('Kept. You can shape it whenever you’re ready.');
+    return { id: item.id, title: item.title };
+  }
   function openDump(newVersion: boolean) {
     if (!detail || detail.status === 'archived') return;
     captureBeforeDump.current = capture;
@@ -526,42 +636,48 @@ export default function Home() {
       persist(itemsRef.current.map((item) => item.id === detail.id ? normalize({ ...item, ...restored, blocks: item.blocks }) : item), 'AI suggestion undone. Your original thought is unchanged.');
     } catch (error) { showToast(error instanceof Error ? error.message : 'Could not undo this AI suggestion. Reconnect and try again.'); }
   }
+  function scheduleBlock(intentionId: string, date: string, time: string, duration: number): boolean {
+    const item = itemsRef.current.find((entry) => entry.id === intentionId); if (!item) return false;
+    const start = new Date(`${date}T${time}:00`); if (Number.isNaN(start.getTime())) return false;
+    const block: Block = { id: id(), date, time, duration, syncState: 'pending' };
+    updateItem(intentionId, (current) => ({ ...current, blocks: [...(current.blocks ?? []), block], status: 'planned' }), 'Time set aside.');
+    return true;
+  }
   function saveSchedule(event: FormEvent) {
     event.preventDefault();
     let target = scheduleTarget;
     if (!target) { const candidate = activeItems.find((item) => item.status !== 'completed'); if (!candidate) { showToast('Save an intention before planning time.'); return; } target = candidate.id; }
-    const item = itemsRef.current.find((entry) => entry.id === target); if (!item) return;
-    const start = new Date(`${scheduleDate}T${scheduleTime}:00`); if (Number.isNaN(start.getTime())) { showToast('Choose a valid date and time.'); return; }
-    const block: Block = { id: id(), date: scheduleDate, time: scheduleTime, duration: scheduleDuration, syncState: 'pending' };
-    updateItem(item.id, (current) => ({ ...current, blocks: [...(current.blocks ?? []), block], status: 'planned' }), 'Time set aside.'); setScheduleOpen(false);
+    if (!scheduleBlock(target, scheduleDate, scheduleTime, scheduleDuration)) { showToast('Choose a valid date and time.'); return; }
+    setScheduleOpen(false);
   }
-  function removeBlock(itemId: string, blockId: string) {
+  function removeBlock(itemId: string, blockId: string, skipConfirm = false) {
     const item = itemsRef.current.find((entry) => entry.id === itemId); const block = item?.blocks?.find((entry) => entry.id === blockId); if (!item || !block) return;
-    if (block.externalEventId && !window.confirm('Remove this time from Veylo? The Google Calendar event will remain in Google.')) return;
+    if (!skipConfirm && block.externalEventId && !window.confirm('Remove this time from Veylo? The Google Calendar event will remain in Google.')) return;
     updateItem(itemId, (current) => ({ ...current, blocks: (current.blocks ?? []).filter((entry) => entry.id !== blockId), status: current.status === 'planned' && (current.blocks?.length ?? 0) <= 1 ? 'ready' : current.status }), 'Time block removed.');
   }
-  async function addCalendarEvent(itemId: string, blockId: string) {
+  async function addCalendarEvent(itemId: string, blockId: string, skipConfirm = false) {
     let item = itemsRef.current.find((entry) => entry.id === itemId); let block = item?.blocks?.find((entry) => entry.id === blockId); if (!item || !block) return;
     if (!googleConnected) { await connectCalendar(); return; }
     if (!block.remoteId) { try { await syncClient.current?.flush(); item = itemsRef.current.find((entry) => entry.id === itemId); block = item?.blocks?.find((entry) => entry.id === blockId); } catch { /* report below */ } }
     if (!item || !block?.remoteId) { showToast('This time is still syncing. Try again in a moment.'); return; }
-    if (!window.confirm(`Add “${item.title}” to Google Calendar on ${block.date} at ${block.time} for ${block.duration} minutes?`)) return;
+    if (!skipConfirm && !window.confirm(`Add “${item.title}” to Google Calendar on ${block.date} at ${block.time} for ${block.duration} minutes?`)) return;
     try {
       const event = await syncClient.current?.createCalendarEvent(block.remoteId); if (!event || !item || !block) return;
       updateItem(itemId, (current) => ({ ...current, blocks: (current.blocks ?? []).map((entry) => entry.id === blockId ? { ...entry, externalEventId: event.externalEventId, externalLink: event.externalUrl, syncState: 'synced' } : entry) }), event.alreadyExists ? 'This block is already in Google Calendar.' : 'Added to Google Calendar.');
     } catch (error) { showToast(error instanceof Error ? error.message : 'Could not add this event.'); }
   }
   function connectCalendar() { changeView('connections'); }
-  async function refreshAvailability(range?: { start: Date; end: Date }) {
+  async function refreshAvailability(range?: { start: Date; end: Date }): Promise<Array<{ start: string; end: string }> | null> {
     try {
       const ownerId = userId;
       const start = range?.start ?? (() => { const date = new Date(); date.setDate(date.getDate() - date.getDay()); date.setHours(0, 0, 0, 0); return date; })();
       const end = range?.end ?? dateShift(start, 7);
       const result = await syncClient.current?.calendarAvailability(start.toISOString(), end.toISOString(), Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
-      if (activeUserId.current !== ownerId) return;
+      if (activeUserId.current !== ownerId) return null;
       const busy = result?.busy ?? []; setBusyWindows(busy); setBusyWindowRange({ start: localDate(start), end: localDate(end), checkedAt: new Date().toISOString() });
       setAvailabilityText(`${busy.length} busy ${busy.length === 1 ? 'window' : 'windows'} in the checked period. Event titles are not read.`); showToast('Free/busy availability refreshed.');
-    } catch (error) { showToast(error instanceof Error ? error.message : 'Could not read calendar availability.'); }
+      return busy;
+    } catch (error) { showToast(error instanceof Error ? error.message : 'Could not read calendar availability.'); return null; }
   }
   function updatePreferences(next: Preferences) {
     setPrefs(next);
@@ -652,12 +768,13 @@ export default function Home() {
       if (warnings.length) window.alert(`Your Veylo account was deleted.\n\n${warnings.join('\n\n')}`);
     } catch (error) { showToast(error instanceof Error ? error.message : 'Account deletion failed.'); }
   }
-  function deleteEverything() { if (!window.confirm('Delete all intentions and planned-time details from Veylo across your devices? This cannot be undone. Any events already created in Google Calendar will remain there.')) return; if (!persist([], 'Your synced space is being cleared.')) return; void syncClient.current?.deleteEverything().catch((error) => showToast(error instanceof Error ? error.message : 'Could not clear your synced space.')); }
+  function deleteEverything(skipConfirm = false) { if (!skipConfirm && !window.confirm('Delete all intentions and planned-time details from Veylo across your devices? This cannot be undone. Any events already created in Google Calendar will remain there.')) return; if (!persist([], 'Your synced space is being cleared.')) return; void syncClient.current?.deleteEverything().catch((error) => showToast(error instanceof Error ? error.message : 'Could not clear your synced space.')); }
   function signOut() { if (window.confirm('Sign out of Veylo on this device? Your saved intentions remain in your account.')) void syncClient.current?.signOut(); }
   function exportThenClose() { void exportData(); }
   function selectCaptureMode(mode: 'keyboard' | 'microphone') {
     setCaptureInputMode(mode);
     if (mode === 'microphone') { startVoice(); return; }
+    setCaptureFocused(true);
     if (recognizing) {
       try { recognizing.stop(); } catch { recognizing.abort?.(); }
       setRecognizing(null);
@@ -752,12 +869,16 @@ export default function Home() {
   if (!authClient) return <main className="auth-screen"><section className="auth-card"><Brand /><h1>Veylo needs setup</h1><p>Add the public Supabase URL and key to <code>apps/web/.env</code>, then restart the web app.</p></section></main>;
   if (!session) return <SignIn client={authClient} />;
 
-  const nav: Array<{ id: View; label: string; icon: ReactNode; iconName?: 'explore' | 'align' | 'time' | 'suggestions' | 'connections' }> = [
-    { id: 'space', label: 'Dump', icon: <BrainIcon /> }, { id: 'explore', label: 'Explore', icon: <UiIcon name="explore" />, iconName: 'explore' },
+  const nav: Array<{ id: View; label: string; icon: ReactNode; iconName?: 'home' | 'explore' | 'align' | 'time' | 'suggestions' | 'connections' }> = [
+    { id: 'space', label: 'Space', icon: <UiIcon name="home" />, iconName: 'home' }, { id: 'explore', label: 'Explore', icon: <UiIcon name="explore" />, iconName: 'explore' },
     { id: 'align', label: 'Align', icon: <UiIcon name="align" />, iconName: 'align' }, { id: 'time', label: 'Time', icon: <UiIcon name="time" />, iconName: 'time' },
     { id: 'suggestions', label: 'Suggestions', icon: <UiIcon name="suggestions" />, iconName: 'suggestions' }, { id: 'connections', label: 'Connections', icon: <UiIcon name="connections" />, iconName: 'connections' },
   ];
+  const navBarButton = (entry: typeof nav[number]) => <button key={entry.id} className={`nav-item ${entry.id === 'suggestions' ? 'suggestion-link' : ''} ${view === entry.id ? 'active' : ''}`} onClick={() => changeView(entry.id)} title={entry.label}><span className="nav-icon">{entry.icon}</span><span>{entry.label}</span>{entry.id === 'explore' ? <span className="nav-count">{activeItems.length}</span> : entry.id === 'suggestions' && suggestions.length > 0 ? <span className="suggestion-dot" /> : null}</button>;
   const recent = activeItems.filter((item) => item.status !== 'completed').slice(0, 6);
+  const openCount = activeItems.filter((item) => item.status !== 'completed').length;
+  const firstName = (typeof session.user.user_metadata?.full_name === 'string' ? session.user.user_metadata.full_name : '').trim().split(/\s+/)[0] || '';
+  const greeting = `Good ${today.getHours() < 12 ? 'morning' : today.getHours() < 18 ? 'afternoon' : 'evening'}${firstName ? `, ${firstName}` : ''}.`;
   const exploreItems = filter === 'archived' ? items.filter((item) => item.status === 'archived') : activeItems;
   const filtered = exploreItems.filter((item) => (filter === 'all' || filter === 'archived' || item.kind === filter) && (!search.trim() || `${item.title} ${item.rawCapture} ${item.purpose ?? ''}`.toLowerCase().includes(search.toLowerCase()))).sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
   const relationshipCount = (itemId: string) => relationships.filter((relationship) => relationship.fromClientId === itemId || relationship.toClientId === itemId).length;
@@ -767,14 +888,160 @@ export default function Home() {
 
   const suggestions = prefs.suggestions ? rankIntentionSuggestions(activeItems, suggestionFeedback, { now: today, limit: prefs.nudgeLimit }) : [];
 
-  return <div className={`app-shell ${view === 'space' && !detail ? 'dumps-view' : ''}`}>
-    <aside className="sidebar" aria-label="Main navigation"><a className="brand" href="#space" onClick={(event) => { event.preventDefault(); changeView('space'); }}><span className="brand-mark"><i /><i /><i /></span><span>veylo</span></a><button type="button" className="dump-action" onClick={() => changeView('space')}><BrainDumpIcon /><span>Dump now</span></button><div className="nav-label">Your space</div><nav className="main-nav">{nav.slice(1, 4).map((entry) => <button key={entry.id} className={`nav-item ${view === entry.id ? 'active' : ''}`} onClick={() => changeView(entry.id)}><span className="nav-icon">{entry.icon}</span><span>{entry.label}</span>{entry.id === 'explore' ? <span className="nav-count">{activeItems.length}</span> : null}</button>)}</nav><div className="sidebar-divider" />{nav.slice(4).map((entry) => <button key={entry.id} className={`nav-item ${entry.id === 'suggestions' ? 'suggestion-link' : ''} ${view === entry.id ? 'active' : ''}`} onClick={() => changeView(entry.id)}><span className="nav-icon">{entry.icon}</span><span>{entry.label}</span>{entry.id === 'suggestions' && suggestions.length > 0 ? <span className="suggestion-dot" /> : null}</button>)}<div className="sidebar-spacer" /><AccountMenu name={typeof session.user.user_metadata?.full_name === 'string' ? session.user.user_metadata.full_name : ''} email={session.user.email ?? ''} onSelect={(action) => {
-      if (action === 'sign-out') signOut();
-      else openAccount(action);
-    }} /></aside>
+  const tomorrowString = localDate(dateShift(today, 1));
+  const spaceUpcoming: SpaceUpcomingEntry[] = scheduled.filter(({ block }) => block.date >= todayString).slice(0, 5)
+    .map(({ item, block }) => ({ id: block.id, intentionId: item.id, title: item.title, kind: item.kind, duration: block.duration, time: block.time, label: block.date === todayString ? 'Today' : block.date === tomorrowString ? 'Tomorrow' : dateTitle(new Date(`${block.date}T00:00:00`)) }));
+  const todayPlan = scheduled.filter(({ block }) => block.date === todayString);
+  const doneToday = items.filter((item) => item.status === 'completed' && localDate(new Date(item.updatedAt)) === todayString);
+  const spaceFallbackCard: SpaceHighlightCard = { label: 'Progress today', text: todayPlan.length ? `${doneToday.length} of ${todayPlan.length} planned sessions done so far.` : `${doneToday.length} done today, ${openCount} still open overall.` };
+  const spaceSuggestions: SpaceSuggestionEntry[] = suggestions.slice(0, 3).map(({ item, rationale }) => ({ id: item.id, title: item.title, rationale }));
+  const dayOfYear = Math.floor((today.getTime() - new Date(today.getFullYear(), 0, 0).getTime()) / 86400000);
+  const spaceQuote = spaceQuotes[dayOfYear % spaceQuotes.length]!;
+
+  const railCollapseGlyph = navCollapsed ? (navPosition === 'left' ? '»' : '«') : (navPosition === 'left' ? '«' : '»');
+
+  const voiceActions: VoiceActions = {
+    listIntentions: (filter) => (filter === 'archived' ? items.filter((item) => item.status === 'archived') : filter === 'all' ? items : activeItems)
+      .map((item) => ({ id: item.id, title: item.title, kind: item.kind, status: item.status, horizon: item.horizon ?? null, updatedAt: item.updatedAt })),
+    getIntention: (itemId) => {
+      const item = items.find((entry) => entry.id === itemId); if (!item) return null;
+      return {
+        id: item.id, title: item.title, kind: item.kind, status: item.status, horizon: item.horizon ?? null, updatedAt: item.updatedAt,
+        rawCapture: item.rawCapture, intent: item.intent ?? null, purpose: item.purpose ?? null, desiredOutcome: item.desiredOutcome ?? null,
+        roughPlan: item.roughPlan ?? null, effortEstimate: item.effortEstimate ?? null,
+        blocks: (item.blocks ?? []).map((block) => ({ id: block.id, date: block.date, time: block.time, duration: block.duration, externalEventId: block.externalEventId })),
+      };
+    },
+    listRelationships: () => relationships.map((link) => ({ id: link.id, fromId: link.fromClientId, fromTitle: link.fromTitle, toId: link.toClientId, toTitle: link.toTitle, relation: link.relation })),
+    getPreferences: () => ({ ...prefs }),
+    listConnections: () => connectionStatuses.map((status) => ({ provider: status.provider, connected: status.connected })),
+    checkCalendarAvailability: async (startDate, endDate) => {
+      const start = new Date(`${startDate}T00:00:00`); const end = new Date(`${endDate}T00:00:00`);
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return { ok: false, error: 'Those dates were not valid.' };
+      const busy = await refreshAvailability({ start, end });
+      if (busy === null) return { ok: false, error: 'Could not read calendar availability. Is Google Calendar connected?' };
+      return { ok: true, message: `${busy.length} busy ${busy.length === 1 ? 'window' : 'windows'} in that range.`, busy };
+    },
+
+    createIntention: async (rawCapture) => {
+      const created = await createIntentionFromVoice(rawCapture);
+      if (!created) return { ok: false, error: 'Could not capture that just now.' };
+      return { ok: true, id: created.id, title: created.title, message: `Added “${created.title}”.` };
+    },
+    updateIntention: (itemId, patch) => {
+      const item = items.find((entry) => entry.id === itemId); if (!item) return { ok: false, error: 'No intention with that id.' };
+      updateItem(itemId, (current) => ({ ...current, ...patch }), 'Thought updated.');
+      return { ok: true, id: itemId, title: (patch.title as string | undefined) ?? item.title, message: `Updated “${(patch.title as string | undefined) ?? item.title}”.` };
+    },
+    archiveIntention: (itemId) => {
+      const item = items.find((entry) => entry.id === itemId); if (!item) return { ok: false, error: 'No intention with that id.' };
+      updateItem(itemId, (current) => ({ ...current, status: 'archived' }), 'Thought archived.');
+      return { ok: true, id: itemId, title: item.title, message: `Archived “${item.title}”.` };
+    },
+    restoreIntention: (itemId) => {
+      const item = items.find((entry) => entry.id === itemId); if (!item) return { ok: false, error: 'No intention with that id.' };
+      updateItem(itemId, (current) => ({ ...current, status: 'ready' }), 'Thought restored to your space.');
+      return { ok: true, id: itemId, title: item.title, message: `Restored “${item.title}”.` };
+    },
+
+    scheduleTimeBlock: (intentionId, date, time, durationMinutes) => {
+      const item = items.find((entry) => entry.id === intentionId);
+      const ok = scheduleBlock(intentionId, date, time, durationMinutes);
+      return ok
+        ? { ok: true, id: intentionId, title: item?.title, message: `Set aside time for “${item?.title ?? 'that'}”.` }
+        : { ok: false, error: 'Could not schedule that time. Check the intention id, date, and time.' };
+    },
+    removeTimeBlock: (intentionId, blockId) => {
+      const item = items.find((entry) => entry.id === intentionId); const block = item?.blocks?.find((entry) => entry.id === blockId);
+      if (!item || !block) return { ok: false, error: 'No matching time block.' };
+      const hadExternalEvent = Boolean(block.externalEventId);
+      removeBlock(intentionId, blockId, true);
+      return { ok: true, id: intentionId, title: item.title, message: hadExternalEvent ? 'Removed from Veylo. The Google Calendar event remains in Google.' : 'Time block removed.' };
+    },
+
+    createRelationship: async (fromId, toId, relation) => {
+      await createRelationship(fromId, toId, relation as IntentionRelationship['relation']);
+      return { ok: true, message: 'Connected.' };
+    },
+    deleteRelationship: async (relationshipId) => {
+      await deleteRelationship(relationshipId);
+      return { ok: true, message: 'Connection removed.' };
+    },
+
+    updatePreferences: (patch) => {
+      const { suggestionsEnabled, ...rest } = patch as { suggestionsEnabled?: boolean } & Record<string, unknown>;
+      updatePreferences({ ...prefs, ...rest, ...(suggestionsEnabled !== undefined ? { suggestions: suggestionsEnabled } : {}) } as Preferences);
+      return { ok: true, message: 'Preferences updated.' };
+    },
+    setSuggestionFeedback: async (clientId, state, snoozedUntil) => {
+      await recordSuggestionFeedback(clientId, state as SuggestionFeedback['state'], snoozedUntil);
+      return { ok: true, message: 'Got it.' };
+    },
+
+    navigateView: (targetView, opts) => {
+      if (targetView === 'account') openAccount((opts.accountTab as AccountTab) || 'profile');
+      else changeView(targetView as View);
+      if (opts.intentionId) setDetailId(opts.intentionId);
+      return { ok: true };
+    },
+
+    addCalendarEvent: async (intentionId, blockId, confirm) => {
+      if (!confirm) return { ok: false, needsConfirmation: true, message: 'Describe what will happen and ask the user to confirm first.' };
+      if (!googleConnected) { changeView('connections'); return { ok: false, message: 'Google Calendar is not connected yet — opened Connections so the user can connect it.' }; }
+      const item = items.find((entry) => entry.id === intentionId);
+      await addCalendarEvent(intentionId, blockId, true);
+      return { ok: true, id: intentionId, title: item?.title, message: `Added “${item?.title ?? 'that'}” to Google Calendar.` };
+    },
+    deleteAllIntentions: (confirm) => {
+      if (!confirm) return { ok: false, needsConfirmation: true, message: 'Warn the user this is irreversible and ask them to confirm first.' };
+      deleteEverything(true);
+      return { ok: true, message: 'All intentions deleted.' };
+    },
+    disconnectIntegration: async (provider, confirm) => {
+      if (!confirm) return { ok: false, needsConfirmation: true, message: 'Warn the user this disconnects the provider and ask them to confirm first.' };
+      if (!oauthProviders.includes(provider as OAuthProvider) && provider !== 'icloud') return { ok: false, error: 'Unknown provider.' };
+      try {
+        const result = await syncClient.current?.disconnectProvider(provider as OAuthProvider | 'icloud');
+        return { ok: true, message: result?.revocationWarning ?? 'Disconnected.' };
+      } catch (error) { return { ok: false, error: error instanceof Error ? error.message : 'Could not disconnect that provider.' }; }
+    },
+    requestAccountDeletion: () => {
+      openAccount('preferences');
+      return { ok: true, message: "Opened account preferences — the user needs to tap Delete account there to confirm. This never deletes anything by itself." };
+    },
+  };
+
+  return <div className={`app-shell ${captureFocused ? 'dumps-view' : ''}`}>
+    {(navPosition === 'top' || navPosition === 'bottom') && <nav className={`nav-bar nav-bar-${navPosition}`} aria-label="Main navigation">
+      <a className="brand" href="#space" onClick={(event) => { event.preventDefault(); changeView('space'); }}><span className="brand-mark"><i /><i /><i /></span><span>veylo</span></a>
+      {navPosition === 'bottom'
+        ? <div className="nav-bar-items">
+            {nav.slice(0, 3).map(navBarButton)}
+            <button type="button" className="dump-action" onClick={openDumpNow} title="Dump now"><BrainDumpIcon /><span>Dump now</span></button>
+            {nav.slice(3).map(navBarButton)}
+          </div>
+        : <>
+            <div className="nav-bar-items">{nav.map(navBarButton)}</div>
+            <button type="button" className="dump-action" onClick={openDumpNow} title="Dump now"><BrainDumpIcon /><span>Dump now</span></button>
+          </>}
+    </nav>}
+    {(navPosition === 'left' || navPosition === 'right') && <aside className={`sidebar ${navCollapsed ? 'collapsed' : ''}`} aria-label="Main navigation">
+      <div className="sidebar-head">
+        <a className="brand" href="#space" onClick={(event) => { event.preventDefault(); changeView('space'); }}><span className="brand-mark"><i /><i /><i /></span><span>veylo</span></a>
+        <button type="button" className="nav-collapse-toggle" onClick={toggleNavCollapsed} aria-label={navCollapsed ? 'Expand navigation' : 'Collapse navigation'} title={navCollapsed ? 'Expand navigation' : 'Collapse navigation'}>{railCollapseGlyph}</button>
+      </div>
+      <button type="button" className="dump-action" onClick={openDumpNow} title="Dump now"><BrainDumpIcon /><span>Dump now</span></button>
+      <div className="nav-label">Your space</div>
+      <nav className="main-nav">{nav.slice(0, 4).map((entry) => <button key={entry.id} className={`nav-item ${view === entry.id ? 'active' : ''}`} onClick={() => changeView(entry.id)} title={entry.label}><span className="nav-icon">{entry.icon}</span><span>{entry.label}</span>{entry.id === 'explore' ? <span className="nav-count">{activeItems.length}</span> : null}</button>)}</nav>
+      <div className="sidebar-divider" />{nav.slice(4).map((entry) => <button key={entry.id} className={`nav-item ${entry.id === 'suggestions' ? 'suggestion-link' : ''} ${view === entry.id ? 'active' : ''}`} onClick={() => changeView(entry.id)} title={entry.label}><span className="nav-icon">{entry.icon}</span><span>{entry.label}</span>{entry.id === 'suggestions' && suggestions.length > 0 ? <span className="suggestion-dot" /> : null}</button>)}
+      <div className="sidebar-spacer" />
+    </aside>}
     <main className="main-area">
-      <header className="topbar"><button className="mobile-brand" onClick={() => changeView('space')}><span className="brand-mark"><i /><i /><i /></span>veylo</button><div className="breadcrumb"><span>Your space</span><span className="crumb-slash">/</span><b>{accountTab ? 'Settings' : nav.find((entry) => entry.id === view)?.label}</b></div><div className="topbar-actions"><span className={`sync-state ${syncError ? 'state-error' : /waiting|updating|pending/i.test(syncLabel) ? 'state-pending' : 'state-success'}`} role="status"><i />{syncError ? <UiIcon name="alert" /> : /waiting|updating|pending/i.test(syncLabel) ? <UiIcon name="time" /> : <UiIcon name="cloud" />}<span>{syncLabel}</span></span><button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} aria-pressed={theme === 'dark'} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`}><span aria-hidden="true">{theme === 'dark' ? '☾' : '☼'}</span><span className="theme-toggle-label">{theme === 'dark' ? 'Dark' : 'Light'}</span></button><button className="icon-button" onClick={() => showToast('Capture first. Give a thought its shape when you are ready.')} aria-label="About Veylo">?</button></div></header>
-      <div className="mobile-tabs" aria-label="Perspectives"><button type="button" className="dump-action" onClick={() => changeView('space')}><BrainDumpIcon /><span>Dump now</span></button>{nav.filter((entry) => ['explore', 'align', 'time', 'connections'].includes(entry.id)).map((entry) => <button key={entry.id} type="button" className={`mobile-tab ${view === entry.id ? 'active' : ''}`} aria-current={view === entry.id ? 'page' : undefined} onClick={() => changeView(entry.id)}><span className="mobile-tab-icon">{entry.icon}</span>{entry.id === 'connections' ? 'Connect' : entry.label}</button>)}</div>
+      <header className="topbar"><button className="mobile-brand" onClick={() => changeView('space')}><span className="brand-mark"><i /><i /><i /></span>veylo</button><div className="topbar-actions"><button type="button" className="global-search-trigger" aria-label="Search your thoughts" title="Search your thoughts" onClick={() => setPaletteOpen(true)}><svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.75" cy="8.75" r="6" /><path d="m17 17-4-4" /></svg><span className="global-search-placeholder">Search</span><kbd>{searchShortcutLabel}</kbd></button><button className="theme-toggle" type="button" onClick={toggleTheme} aria-label={`Switch to ${isDarkFamily(theme) ? 'light' : 'dark'} theme`} aria-pressed={isDarkFamily(theme)} title={`Switch to ${isDarkFamily(theme) ? 'light' : 'dark'} theme`}><span aria-hidden="true">{isDarkFamily(theme) ? '☾' : '☼'}</span></button><AccountMenu compact name={typeof session.user.user_metadata?.full_name === 'string' ? session.user.user_metadata.full_name : ''} email={session.user.email ?? ''} onSelect={(action) => {
+        if (action === 'sign-out') signOut();
+        else openAccount(action);
+      }} /></div></header>
+      <div className="mobile-tabs" aria-label="Perspectives"><button type="button" className="dump-action" onClick={openDumpNow}><BrainDumpIcon /><span>Dump now</span></button>{nav.filter((entry) => ['explore', 'align', 'time', 'connections'].includes(entry.id)).map((entry) => <button key={entry.id} type="button" className={`mobile-tab ${view === entry.id ? 'active' : ''}`} aria-current={view === entry.id ? 'page' : undefined} onClick={() => changeView(entry.id)}><span className="mobile-tab-icon">{entry.icon}</span>{entry.id === 'connections' ? 'Connect' : entry.label}</button>)}</div>
       <div className="content-wrap" hidden={Boolean(detail)}>
         {accountTab && <AccountSettingsPage activeTab={accountTab} onTabChange={openAccount}
           profile={<div className="settings-content"><h2>Profile</h2><p className="settings-lede">Your Veylo account.</p>
@@ -782,15 +1049,25 @@ export default function Home() {
         <dl className="account-profile-details"><div><dt>Email address</dt><dd>{session.user.email ?? 'Not provided'}</dd></div><div><dt>Member since</dt><dd>{session.user.created_at ? new Date(session.user.created_at).toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' }) : 'Not available'}</dd></div></dl>
       </div>}
           personalization={<div className="settings-content"><h2>Personalization</h2><p className="settings-lede">Make this space feel like yours.</p>
-        <Setting title="Appearance" detail="Choose a light or dark theme for this device"><select aria-label="Appearance" value={theme} onChange={(event) => { if (event.target.value !== theme) toggleTheme(); }}><option value="light">Light</option><option value="dark">Dark</option></select></Setting>
+        <Setting title="Appearance" detail="Choose a theme for this device, or follow your system setting"><select aria-label="Appearance" value={themeChoice} onChange={(event) => setThemePreference(event.target.value as ThemeChoice)}>{themeChoices.map((value) => <option key={value} value={value}>{themeChoiceLabels[value]}</option>)}</select></Setting>
         <Setting title="Reduced motion" detail="Keep transitions and the brain animation still"><label className="switch"><input type="checkbox" aria-label="Reduced motion" checked={prefs.reduceMotion} onChange={(event) => updatePreferences({ ...prefs, reduceMotion: event.target.checked })} /><span /></label></Setting>
+        <Setting title="Assistant name" detail="What should your voice assistant call itself?"><input type="text" maxLength={30} aria-label="Assistant name" value={agentSettings.name} placeholder={voiceAgentDefaultName} onChange={(event) => setAgentSettings({ ...agentSettings, name: event.target.value })} onBlur={(event) => { if (!event.target.value.trim()) setAgentSettings({ ...agentSettings, name: voiceAgentDefaultName }); }} /></Setting>
+        <Setting title="Assistant tone" detail="How your assistant should sound when it talks with you"><select aria-label="Assistant tone" value={agentSettings.tone} onChange={(event) => setAgentSettings({ ...agentSettings, tone: event.target.value as VoiceAgentTone })}>{voiceAgentTones.map((value) => <option key={value} value={value}>{voiceAgentToneLabels[value]}</option>)}</select></Setting>
+        <Setting title="Assistant voice" detail="Pick a voice, then test it before you commit">
+          <VoicePicker value={agentSettings.voice} onChange={(voice) => setAgentSettings({ ...agentSettings, voice })} agentName={agentSettings.name || voiceAgentDefaultName} apiUrl={API} getAccessToken={async () => (await authClient?.auth.getSession())?.data.session?.access_token ?? null} />
+        </Setting>
+        <Setting title="Navigation position" detail="Choose where Space, Explore, Align, Time, Suggestions, and Connections live on screen">
+          <div className="nav-position-choices" role="group" aria-label="Navigation position">{(['left', 'top', 'right', 'bottom'] as const).map((value) => <button key={value} type="button" className={`nav-position-choice ${navPosition === value ? 'selected' : ''}`} aria-pressed={navPosition === value} onClick={() => setNavPosition(value)}>{value[0]!.toUpperCase() + value.slice(1)}</button>)}</div>
+        </Setting>
+        {(navPosition === 'left' || navPosition === 'right') && <Setting title="Collapse navigation" detail="Show icons only to save space; expand it again any time"><label className="switch"><input type="checkbox" aria-label="Collapse navigation" checked={navCollapsed} onChange={toggleNavCollapsed} /><span /></label></Setting>}
       </div>}
-          preferences={<div className="settings-content"><h2>Preferences</h2><p className="settings-lede">Your thoughts sync securely across your devices. Choose what feels right.</p><Setting title="Browser reminders" detail={webPushMessage || (webPushSubscribed ? 'Receive a gentle browser notification when a snoozed thought returns.' : 'Opt in to a private reminder when a snoozed thought returns.')}><button className="outline-button" disabled={webPushBusy} onClick={() => void toggleWebPush()}>{webPushBusy ? 'Updating…' : webPushSubscribed ? 'Turn off' : 'Turn on'}</button></Setting><Setting title="Quiet hours" detail={prefs.quietStart ? `Snooze reminders pause from ${prefs.quietStart} to ${prefs.quietEnd} (${prefs.timezone || 'device time'}).` : 'Let reminders wait until morning, from 10pm to 8am local time.'}><label className="switch"><input type="checkbox" aria-label="Quiet hours" checked={Boolean(prefs.quietStart)} onChange={(event) => { const enabled = event.target.checked; updatePreferences({ ...prefs, quietStart: enabled ? '22:00' : null, quietEnd: enabled ? '08:00' : null, timezone: enabled ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' : null }); }} /><span /></label></Setting><Setting title="Suggestions" detail="Show gentle ideas in your suggestion tray"><label className="switch"><input type="checkbox" aria-label="Suggestions" checked={prefs.suggestions} onChange={(event) => updatePreferences({ ...prefs, suggestions: event.target.checked })} /><span /></label></Setting><Setting title="AI-assisted features" detail="Suggest a title, identify the type, and ask useful follow-up questions. For interpretation, relevant text goes to Laya for preliminary category and timeframe signals, then to OpenAI for the final decision. Brainstorming sends the thought and conversation to OpenAI."><label className="switch"><input type="checkbox" aria-label="AI-assisted features" checked={prefs.aiInterpretationEnabled} onChange={(event) => void toggleAI(event.target.checked)} /><span /></label></Setting><Setting title="Suggestion limit" detail="Limit the number of ideas in your tray"><select aria-label="Suggestion limit" value={prefs.nudgeLimit} onChange={(event) => updatePreferences({ ...prefs, nudgeLimit: Number(event.target.value) })}><option value={0}>Off</option><option value={1}>1 suggestion</option><option value={2}>2 suggestions</option></select></Setting><div className="settings-actions"><button className="outline-button" onClick={exportThenClose}>Export my thoughts</button><button className="outline-button" onClick={signOut}>Sign out</button><button className="outline-button" onClick={() => void deleteAccount()}>Delete account</button><button className="danger-button" onClick={deleteEverything}>Delete all intentions</button></div><div className="privacy-note"><span>⌑</span><p>Your data is private to your account. AI-assisted features are optional. When enabled, thought interpretation sends relevant text to Laya for preliminary category and timeframe signals, then to OpenAI for the final decision. Brainstorming sends the thought and conversation to OpenAI for replies. Veylo never saves an AI reply into a thought without your edit. Voice transcription uses your browser’s speech service when available. Signed-in crash reports include only platform, error category, and a one-way fingerprint.</p></div></div>}
+          preferences={<div className="settings-content"><h2>Preferences</h2><p className="settings-lede">Your thoughts sync securely across your devices. Choose what feels right.</p><Setting title="Browser reminders" detail={webPushMessage || (webPushSubscribed ? 'Receive a gentle browser notification when a snoozed thought returns.' : 'Opt in to a private reminder when a snoozed thought returns.')}><button className="outline-button" disabled={webPushBusy} onClick={() => void toggleWebPush()}>{webPushBusy ? 'Updating…' : webPushSubscribed ? 'Turn off' : 'Turn on'}</button></Setting><Setting title="Quiet hours" detail={prefs.quietStart ? `Snooze reminders pause from ${prefs.quietStart} to ${prefs.quietEnd} (${prefs.timezone || 'device time'}).` : 'Let reminders wait until morning, from 10pm to 8am local time.'}><label className="switch"><input type="checkbox" aria-label="Quiet hours" checked={Boolean(prefs.quietStart)} onChange={(event) => { const enabled = event.target.checked; updatePreferences({ ...prefs, quietStart: enabled ? '22:00' : null, quietEnd: enabled ? '08:00' : null, timezone: enabled ? Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC' : null }); }} /><span /></label></Setting><Setting title="Suggestions" detail="Show gentle ideas in your suggestion tray"><label className="switch"><input type="checkbox" aria-label="Suggestions" checked={prefs.suggestions} onChange={(event) => updatePreferences({ ...prefs, suggestions: event.target.checked })} /><span /></label></Setting><Setting title="AI-assisted features" detail="Suggest a title, identify the type, and ask useful follow-up questions. For interpretation, relevant text goes to Laya for preliminary category and timeframe signals, then to OpenAI for the final decision. Brainstorming sends the thought and conversation to OpenAI. When you're on Space, a short time-of-day-aware line about your day is generated by OpenAI from your plan, completions, and open count — refreshed at most every couple of hours."><label className="switch"><input type="checkbox" aria-label="AI-assisted features" checked={prefs.aiInterpretationEnabled} onChange={(event) => void toggleAI(event.target.checked)} /><span /></label></Setting><Setting title="Suggestion limit" detail="Limit the number of ideas in your tray"><select aria-label="Suggestion limit" value={prefs.nudgeLimit} onChange={(event) => updatePreferences({ ...prefs, nudgeLimit: Number(event.target.value) })}><option value={0}>Off</option><option value={1}>1 suggestion</option><option value={2}>2 suggestions</option></select></Setting><div className="settings-actions"><button className="outline-button" onClick={exportThenClose}>Export my thoughts</button><button className="outline-button" onClick={signOut}>Sign out</button><button className="outline-button" onClick={() => void deleteAccount()}>Delete account</button><button className="danger-button" onClick={() => deleteEverything()}>Delete all intentions</button></div><div className="privacy-note"><span>⌑</span><p>Your data is private to your account. AI-assisted features are optional. When enabled, thought interpretation sends relevant text to Laya for preliminary category and timeframe signals, then to OpenAI for the final decision. Brainstorming sends the thought and conversation to OpenAI for replies. Space's catch-up line sends your plan, completions, and open count to OpenAI, refreshed at most every couple of hours. Veylo never saves an AI reply into a thought without your edit. Voice transcription uses your browser’s speech service when available. Signed-in crash reports include only platform, error category, and a one-way fingerprint.</p></div></div>}
           syncBackup={<div className="settings-content"><h2>Sync &amp; backup</h2><p className="settings-lede">See whether your thoughts are synced, retry a sync, or download a copy of your Veylo data.</p><div className={`sync-backup-status ${syncError ? 'has-error' : ''}`} role="status"><span className="sync-backup-indicator"><UiIcon name={syncError ? 'alert' : /waiting|updating|pending/i.test(syncLabel) ? 'time' : 'cloud'} /></span><div><b>{syncLabel}</b><small>{syncError ? 'Your recent changes remain saved on this device. Retry when you have a connection.' : 'Your account syncs across your signed-in devices.'}</small></div></div><div className="sync-backup-actions"><button className="capture-button" type="button" disabled={syncNowBusy || !syncClientReady} onClick={() => void syncNow()}>{syncNowBusy ? 'Syncing…' : 'Sync now'} <span>↻</span></button><button className="outline-button" type="button" onClick={() => void exportData()}>Download backup <span>↓</span></button></div><p className="sync-backup-note">Backups include your saved thoughts and local sync queue. When offline, the download contains data available on this device.</p></div>}
         />}
-        {view === 'space' && <section className="view active"><div className="welcome-row"><div><div className="date-label">{today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}</div><h1>A little room to think.</h1><p className="subhead">Catch what’s on your mind. Let it find its shape later.</p></div><button className="text-button" onClick={() => changeView('explore')}>View all intentions <span>↗</span></button></div>{legacyImports.length > 0 ? <div className="legacy-import-banner" role="note"><span>Found {legacyImports.length} thought{legacyImports.length === 1 ? '' : 's'} saved by an earlier version of Veylo in this browser. They stay on this device unless you import them. Planned times transfer; old Calendar links do not.</span><button className="outline-button" onClick={importLegacyThoughts}>Import into this account</button></div> : null}{!dumpTarget ? <CapturePanel panelRef={capturePanelRef} inputRef={captureInputRef} capture={capture} onCapture={setCapture} mode={captureInputMode} onMode={selectCaptureMode} listening={Boolean(recognizing)} voiceStatus={voiceStatus} saving={captureSaving} onSave={() => void saveCapture()} onClose={closeCaptureFocus} onKeyDown={handleCaptureKeyDown} reduceMotion={prefs.reduceMotion} theme={theme} /> : null}<div className="section-heading"><div><h2>Still with you</h2><p>Thoughts you’ve been carrying lately</p></div><button className="subtle-button" onClick={() => changeView('explore')}>See all <span>↗</span></button></div><div className="intention-grid">{recent.length ? recent.map((item) => <IntentionCard key={item.id} item={item} onOpen={() => setDetailId(item.id)} />) : <Empty title="Your space is open" text="Save a thought when you’re ready. You can shape it later." />}</div><div className="space-footer"><span className="footer-line" />Your space moves at your pace<span className="footer-line" /></div></section>}
+        {view === 'space' && <section className="view active"><div className="welcome-row"><div><div className="date-label">{today.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}</div><h1>{greeting}</h1><p className="space-quote space-quote-top">“{spaceQuote.text}” <span className="space-quote-author">— {spaceQuote.author}</span></p></div><button className="text-button" onClick={() => changeView('explore')}>View all intentions <span>↗</span></button></div>{legacyImports.length > 0 ? <div className="legacy-import-banner" role="note"><span>Found {legacyImports.length} thought{legacyImports.length === 1 ? '' : 's'} saved by an earlier version of Veylo in this browser. They stay on this device unless you import them. Planned times transfer; old Calendar links do not.</span><button className="outline-button" onClick={importLegacyThoughts}>Import into this account</button></div> : null}<div className="space-split"><div className="space-recent"><SpaceHighlights reduceMotion={prefs.reduceMotion} highlights={spaceHighlightCards ?? [spaceFallbackCard]} /><div className="space-dump-wrap"><button type="button" className="space-dump-cta" onClick={openDumpNow}><BrainDumpIcon /><span>Dump now</span></button><p className="space-dump-caption">Write it or say it — however it comes out.</p></div><div className="section-heading"><div><h2>Recent intentions</h2><p>{openCount} open</p></div><button className="subtle-button" onClick={() => changeView('explore')}>See all <span>↗</span></button></div><div className="explore-list">{recent.length ? recent.map((item) => <button className="explore-row" key={item.id} onClick={() => setDetailId(item.id)}><span className={`row-orb ${item.kind}`}>{kindGlyphs[item.kind] ?? '✳'}</span><span className="row-copy"><h3>{item.title}</h3><time className="row-added" dateTime={item.createdAt}>Added {timeAgo(item.createdAt)}</time><p>{item.rawCapture}</p></span><span className="row-meta"><span>{kindNames[item.kind] ?? 'Thought'}</span><ThoughtStatus status={item.status} compact />{item.horizon ? <span className="row-horizon">{item.horizon}</span> : null}</span><span className="row-trailing"><span className="row-arrow">›</span></span></button>) : <Empty title="Your space is open" text="Save a thought when you’re ready. You can shape it later." />}</div></div><SpaceSchedule upcoming={spaceUpcoming} suggestions={spaceSuggestions} kindNames={kindNames} onOpenIntention={(id) => setDetailId(id)} onOpenTime={() => changeView('time')} onOpenSuggestions={() => changeView('suggestions')} /></div><div className="space-footer"><span className="footer-line" />Capture now, decide later<span className="footer-line" /></div></section>}
+        {captureFocused && !dumpTarget ? <CapturePanel panelRef={capturePanelRef} inputRef={captureInputRef} capture={capture} onCapture={setCapture} mode={captureInputMode} onMode={selectCaptureMode} listening={Boolean(recognizing)} voiceStatus={voiceStatus} saving={captureSaving} onSave={() => void saveCapture()} onClose={closeCaptureFocus} onKeyDown={handleCaptureKeyDown} reduceMotion={prefs.reduceMotion} theme={isDarkFamily(theme) ? 'dark' : 'light'} /> : null}
 
-        {view === 'explore' && <section className="view active"><PageIntro glyph="✳" label="YOUR THOUGHTS, UNFOLDING" title="Explore" text="Give an idea a little space. Nothing needs to be decided yet." /><div className="toolbar"><div className="filter-pills">{['all', 'idea', 'action', 'question', 'note', 'archived'].map((value) => <button key={value} className={`filter-pill ${filter === value ? 'selected' : ''}`} onClick={() => setFilter(value)}>{value === 'all' ? 'All' : value === 'archived' ? 'Archived' : kindNames[value] + 's'} <span>{value === 'all' ? activeItems.length : value === 'archived' ? items.filter((item) => item.status === 'archived').length : activeItems.filter((item) => item.kind === value).length}</span></button>)}</div>{searchOpen ? <input id="search-input" className="search-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Find a thought…" autoFocus /> : <button className="search-button" onClick={() => setSearchOpen(true)}>⌕ <span>Search</span><kbd>⌘ K</kbd></button>}<div className="view-switch" role="group" aria-label="Explore view"><button type="button" aria-label="List view" title="List view" aria-pressed={exploreLayout === 'list'} onClick={() => setExploreLayout('list')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5h9M7.5 10h9M7.5 15h9M3.5 5h.01M3.5 10h.01M3.5 15h.01" /></svg></button><button type="button" aria-label="Gallery view" title="Gallery view" aria-pressed={exploreLayout === 'gallery'} onClick={() => setExploreLayout('gallery')}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="1"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="1"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="1"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="1"/></svg></button></div></div>{exploreLayout === 'gallery' ? <div className="intention-grid explore-gallery">{filtered.length ? filtered.map((item) => <IntentionCard key={item.id} item={item} relationshipCount={relationshipCount(item.id)} onOpen={() => setDetailId(item.id)} />) : <Empty title={filter === 'archived' ? 'No archived thoughts' : 'Nothing here yet'} text="Try another filter or capture a new thought." />}</div> : <div className="explore-list">{filtered.length ? filtered.map((item) => <button className="explore-row" key={item.id} onClick={() => setDetailId(item.id)}><span className={`row-orb ${item.kind}`}>{kindGlyphs[item.kind] ?? '✳'}</span><span className="row-copy"><h3>{item.title}</h3><p>{item.rawCapture}</p></span><span className="row-meta"><span>{kindNames[item.kind] ?? 'Thought'}</span><ThoughtStatus status={item.status} compact />{item.horizon ? <span className="row-horizon">{item.horizon}</span> : null}<span>{new Date(item.updatedAt).toLocaleDateString()}</span></span><span className="row-trailing">{relationshipCount(item.id) ? <span className="thought-link-indicator" title={`${relationshipCount(item.id)} connected thought${relationshipCount(item.id) === 1 ? '' : 's'}`} aria-label={`${relationshipCount(item.id)} connected thought${relationshipCount(item.id) === 1 ? '' : 's'}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 12 12 8M6.5 14.5l-1 1a3.2 3.2 0 0 1-4.5-4.5l4-4a3.2 3.2 0 0 1 4.5 0M13.5 5.5l1-1A3.2 3.2 0 0 1 19 9l-4 4a3.2 3.2 0 0 1-4.5 0" /></svg><span>{relationshipCount(item.id)}</span></span> : null}<span className="row-arrow">›</span></span></button>) : <Empty title={filter === 'archived' ? 'No archived thoughts' : 'Nothing here yet'} text={filter === 'archived' ? 'Thoughts you archive will stay here until you restore or delete them.' : 'Try another filter or capture a new thought.'} />}</div>}</section>}
+        {view === 'explore' && <section className="view active"><PageIntro glyph="✳" label="YOUR THOUGHTS, UNFOLDING" title="Explore" text="Give an idea a little space. Nothing needs to be decided yet." /><div className="toolbar"><div className="filter-pills">{['all', 'idea', 'action', 'question', 'note', 'archived'].map((value) => <button key={value} className={`filter-pill ${filter === value ? 'selected' : ''}`} onClick={() => setFilter(value)}>{value === 'all' ? 'All' : value === 'archived' ? 'Archived' : kindNames[value] + 's'} <span>{value === 'all' ? activeItems.length : value === 'archived' ? items.filter((item) => item.status === 'archived').length : activeItems.filter((item) => item.kind === value).length}</span></button>)}</div>{searchOpen ? <input id="search-input" className="search-input" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Filter this list…" autoFocus /> : <button className="search-button" onClick={() => setSearchOpen(true)}>⌕ <span>Filter</span></button>}<div className="view-switch" role="group" aria-label="Explore view"><button type="button" aria-label="List view" title="List view" aria-pressed={exploreLayout === 'list'} onClick={() => setExploreLayout('list')}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 5h9M7.5 10h9M7.5 15h9M3.5 5h.01M3.5 10h.01M3.5 15h.01" /></svg></button><button type="button" aria-label="Gallery view" title="Gallery view" aria-pressed={exploreLayout === 'gallery'} onClick={() => setExploreLayout('gallery')}><svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="3" width="5.5" height="5.5" rx="1"/><rect x="11.5" y="3" width="5.5" height="5.5" rx="1"/><rect x="3" y="11.5" width="5.5" height="5.5" rx="1"/><rect x="11.5" y="11.5" width="5.5" height="5.5" rx="1"/></svg></button></div></div>{exploreLayout === 'gallery' ? <div className="intention-grid explore-gallery">{filtered.length ? filtered.map((item) => <IntentionCard key={item.id} item={item} relationshipCount={relationshipCount(item.id)} onOpen={() => setDetailId(item.id)} />) : <Empty title={filter === 'archived' ? 'No archived thoughts' : 'Nothing here yet'} text="Try another filter or capture a new thought." />}</div> : <div className="explore-list">{filtered.length ? filtered.map((item) => <button className="explore-row" key={item.id} onClick={() => setDetailId(item.id)}><span className={`row-orb ${item.kind}`}>{kindGlyphs[item.kind] ?? '✳'}</span><span className="row-copy"><h3>{item.title}</h3><time className="row-added" dateTime={item.createdAt}>Added {timeAgo(item.createdAt)}</time><p>{item.rawCapture}</p></span><span className="row-meta"><span>{kindNames[item.kind] ?? 'Thought'}</span><ThoughtStatus status={item.status} compact />{item.horizon ? <span className="row-horizon">{item.horizon}</span> : null}</span><span className="row-trailing">{relationshipCount(item.id) ? <span className="thought-link-indicator" title={`${relationshipCount(item.id)} connected thought${relationshipCount(item.id) === 1 ? '' : 's'}`} aria-label={`${relationshipCount(item.id)} connected thought${relationshipCount(item.id) === 1 ? '' : 's'}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 12 12 8M6.5 14.5l-1 1a3.2 3.2 0 0 1-4.5-4.5l4-4a3.2 3.2 0 0 1 4.5 0M13.5 5.5l1-1A3.2 3.2 0 0 1 19 9l-4 4a3.2 3.2 0 0 1-4.5 0" /></svg><span>{relationshipCount(item.id)}</span></span> : null}<span className="row-arrow">›</span></span></button>) : <Empty title={filter === 'archived' ? 'No archived thoughts' : 'Nothing here yet'} text={filter === 'archived' ? 'Thoughts you archive will stay here until you restore or delete them.' : 'Try another filter or capture a new thought.'} />}</div>}</section>}
 
         {view === 'align' && <AlignView entries={alignments} items={activeItems} onOpen={(itemId) => setDetailId(itemId)} onSave={(entry, version, replaceConflict) => {
           if (!syncClient.current) throw new Error('Your account is still opening. Try again in a moment.');
@@ -828,16 +1105,34 @@ export default function Home() {
     </main>
 
 
-    {dumpTarget && dumpItem ? <CapturePanel panelRef={capturePanelRef} inputRef={captureInputRef} capture={capture} onCapture={setCapture} mode={captureInputMode} onMode={selectCaptureMode} listening={Boolean(recognizing)} voiceStatus={voiceStatus} saving={captureSaving} onSave={() => void saveCapture()} onClose={closeCaptureFocus} onKeyDown={handleCaptureKeyDown} reduceMotion={prefs.reduceMotion} theme={theme} previousPieces={<OriginalPieces versions={dumpItem.originalVersions ?? []} compact />} gist={<OriginalGist item={dumpItem} />} versionLabel={`Version ${(dumpItem.originalVersions?.length ?? 1) + (dumpTarget.newVersion ? 1 : 0)}`} /> : null}
+    {dumpTarget && dumpItem ? <CapturePanel panelRef={capturePanelRef} inputRef={captureInputRef} capture={capture} onCapture={setCapture} mode={captureInputMode} onMode={selectCaptureMode} listening={Boolean(recognizing)} voiceStatus={voiceStatus} saving={captureSaving} onSave={() => void saveCapture()} onClose={closeCaptureFocus} onKeyDown={handleCaptureKeyDown} reduceMotion={prefs.reduceMotion} theme={isDarkFamily(theme) ? 'dark' : 'light'} previousPieces={<OriginalPieces versions={dumpItem.originalVersions ?? []} compact />} gist={<OriginalGist item={dumpItem} />} versionLabel={`Version ${(dumpItem.originalVersions?.length ?? 1) + (dumpTarget.newVersion ? 1 : 0)}`} /> : null}
     {scheduleOpen && <Modal label="Set aside time" onClose={() => setScheduleOpen(false)} className="settings-dialog"><form className="settings-content" onSubmit={saveSchedule}><div className="date-label">A LITTLE SPACE FOR IT</div><h2>Make room</h2><p className="settings-lede">Choose an intention and a time that feels possible.</p><div className="detail-fields"><div className="detail-field"><label htmlFor="schedule-intention">Intention</label><select id="schedule-intention" value={scheduleTarget ?? ''} onChange={(event) => setScheduleTarget(event.target.value)} required><option value="" disabled>Choose a thought</option>{activeItems.filter((item) => item.status !== 'completed').map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></div><div className="detail-field"><label htmlFor="schedule-date">Date</label><input id="schedule-date" type="date" value={scheduleDate} onChange={(event) => setScheduleDate(event.target.value)} required /></div><div className="schedule-input-row"><div className="detail-field"><label htmlFor="schedule-time">Start time</label><input id="schedule-time" type="time" value={scheduleTime} onChange={(event) => setScheduleTime(event.target.value)} required /></div><div className="detail-field"><label htmlFor="schedule-duration">Time set aside</label><select id="schedule-duration" value={scheduleDuration} onChange={(event) => setScheduleDuration(Number(event.target.value))}>{[15, 30, 45, 60, 90].map((value) => <option key={value} value={value}>{value < 60 ? `${value} minutes` : value === 60 ? '1 hour' : '1.5 hours'}</option>)}{![15, 30, 45, 60, 90].includes(scheduleDuration) ? <option value={scheduleDuration}>{scheduleDuration} minutes · estimate</option> : null}</select></div></div></div><div className="settings-actions"><button className="outline-button" type="button" onClick={() => setScheduleOpen(false)}>Cancel</button><button className="save-detail" type="submit">Set this time aside</button></div></form></Modal>}
     {onboardingOpen && <Modal label="Privacy overview" onClose={() => finishOnboarding()} className="settings-dialog"><div className="settings-content"><div className="date-label">WELCOME TO VEYLO</div><h2>Your thoughts stay yours.</h2><p className="settings-lede">Capture saves on this device first, then syncs to your account when you’re online. Your original words stay with each thought.</p><div className="privacy-note"><span>⌑</span><p>AI suggestions and brainstorming are optional. When enabled, thought interpretation sends relevant text to Laya for preliminary category and timeframe signals, then to OpenAI for the final decision. Brainstorming sends the thought and conversation to OpenAI. Calendar and workspace connections are optional. Calendar events are only created when you ask. If you’re signed in and online when a screen crashes, Veylo can send a report with the platform, error category, and one-way fingerprint; it excludes error text, stack details, and your saved thoughts. You can export or delete your data from Preferences.</p></div><div className="settings-actions"><button className="capture-button" onClick={() => finishOnboarding()}>Start with a thought <span>↗</span></button><button className="outline-button" onClick={() => finishOnboarding(true)}>Review privacy settings</button></div></div></Modal>}
+    {paletteOpen && <CommandPalette
+      items={activeItems}
+      kindNames={kindNames}
+      kindGlyphs={kindGlyphs}
+      onOpenItem={(id) => { setDetailId(id); setPaletteOpen(false); }}
+      onNavigate={(destination: PaletteDestination, filterValue) => { changeView(destination); if (filterValue) setFilter(filterValue); setPaletteOpen(false); }}
+      onClose={() => setPaletteOpen(false)}
+    />}
     <div className={`toast ${toast ? 'show' : ''}`} role="status" aria-live="polite">{toast}</div>
+    <VoiceAssistant
+      actions={voiceActions}
+      apiUrl={API}
+      getAccessToken={async () => (await authClient?.auth.getSession())?.data.session?.access_token ?? null}
+      userName={firstName || session.user.email?.split('@')[0] || ''}
+      agentName={agentSettings.name}
+      agentTone={agentSettings.tone}
+      agentVoice={agentSettings.voice}
+      disabled={!syncClientReady}
+    />
   </div>;
 }
 
 function PageIntro({ glyph, label, title, text }: { glyph: string; label: string; title: string; text: string }) { return <div className="page-intro"><div className="page-glyph">{glyph}</div><div><div className="date-label">{label}</div><h1>{title}</h1><p className="subhead">{text}</p></div></div>; }
 function Setting({ title, detail, children }: { title: string; detail: string; children: ReactNode }) { return <div className="setting-row"><div><b>{title}</b><small>{detail}</small></div>{children}</div>; }
-function IntentionCard({ item, onOpen, relationshipCount = 0 }: { item: Intention; onOpen: () => void; relationshipCount?: number }) { return <button className="intention-card" onClick={onOpen}><span className="card-top"><span className="kind-chip"><i />{kindNames[item.kind] ?? 'Thought'}</span>{relationshipCount ? <span className="thought-link-indicator" title={`${relationshipCount} connected thought${relationshipCount === 1 ? '' : 's'}`} aria-label={`${relationshipCount} connected thought${relationshipCount === 1 ? '' : 's'}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 12 12 8M6.5 14.5l-1 1a3.2 3.2 0 0 1-4.5-4.5l4-4a3.2 3.2 0 0 1 4.5 0M13.5 5.5l1-1A3.2 3.2 0 0 1 19 9l-4 4a3.2 3.2 0 0 1-4.5 0" /></svg><span>{relationshipCount}</span></span> : <span className="card-more">···</span>}</span><h3>{item.title}</h3><p>{item.rawCapture}</p><span className="card-bottom"><ThoughtStatus status={item.status} /><span className="card-meta">{item.horizon ? <span className="thought-horizon">{item.horizon}</span> : null}{item.purpose ? <span className="card-purpose"><span className="card-dot">◎</span>{item.purpose}</span> : <span>{new Date(item.createdAt).toLocaleDateString()}</span>}</span></span></button>; }
+function IntentionCard({ item, onOpen, relationshipCount = 0 }: { item: Intention; onOpen: () => void; relationshipCount?: number }) { return <button className="intention-card" onClick={onOpen}><span className="card-top"><span className="kind-chip"><i />{kindNames[item.kind] ?? 'Thought'}</span>{relationshipCount ? <span className="thought-link-indicator" title={`${relationshipCount} connected thought${relationshipCount === 1 ? '' : 's'}`} aria-label={`${relationshipCount} connected thought${relationshipCount === 1 ? '' : 's'}`}><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 12 12 8M6.5 14.5l-1 1a3.2 3.2 0 0 1-4.5-4.5l4-4a3.2 3.2 0 0 1 4.5 0M13.5 5.5l1-1A3.2 3.2 0 0 1 19 9l-4 4a3.2 3.2 0 0 1-4.5 0" /></svg><span>{relationshipCount}</span></span> : null}<span className="card-more" aria-hidden="true">⋯</span></span><h3>{item.title}</h3><time className="card-added" dateTime={item.createdAt}>Added {timeAgo(item.createdAt)}</time><p>{item.rawCapture}</p><span className="card-bottom"><ThoughtStatus status={item.status} />{item.horizon ? <span className="card-meta"><span className="thought-horizon">{item.horizon}</span></span> : null}</span></button>; }
 
 function ThoughtRelationships({ item, items, relationships, onCreate, onDelete, onOpen }: {
   item: Intention; items: Intention[]; relationships: IntentionRelationship[];

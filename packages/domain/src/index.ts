@@ -263,6 +263,7 @@ export function rankIntentionSuggestions<T extends {
 }
 
 export * from './originals.js';
+export * from './voice-tools.js';
 
 export const alignmentKinds = ['reason', 'goal', 'direction', 'value'] as const;
 export const alignmentContentSchema = z.object({

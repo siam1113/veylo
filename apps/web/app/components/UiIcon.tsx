@@ -22,6 +22,13 @@ const paths: Record<string, ReactNode> = {
   check: <path d="m5 12 4.5 4.5L19 7" />,
   alert: <><path d="M12 3 2.8 19h18.4L12 3Z" /><path d="M12 9v4m0 3h.01" /></>,
   cloud: <><path d="M7 18h10a4 4 0 0 0 .4-8A6 6 0 0 0 6 9.2 4.5 4.5 0 0 0 7 18Z" /><path d="m9 13 2 2 4-4" /></>,
+  chat: <><path d="M4 5h16v11H9l-4 4v-4H4Z" /><path d="M8.5 9.5h7M8.5 12.5h4.5" /></>,
+  mic: <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /></>,
+  'mic-off': <><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5 11a7 7 0 0 0 14 0M12 18v3M9 21h6" /><path d="M4 4l16 16" /></>,
+  close: <path d="M5 5l14 14M19 5 5 19" />,
+  home: <><path d="M4 11 12 4l8 7" /><path d="M6 10v9h12v-9" /><path d="M10 19v-5h4v5" /></>,
+  search: <><circle cx="10.5" cy="10.5" r="7" /><path d="m20 20-4.6-4.6" /></>,
+  'sync-backup': <><path d="M20 7v5h-5M4 17v-5h5M5.6 9a7 7 0 0 1 11.8-2L20 12M4 12l2.6 5a7 7 0 0 0 11.8-2" /></>,
 };
 
 export type UiIconName = keyof typeof paths;

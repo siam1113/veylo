@@ -63,6 +63,7 @@ const envSchema = z.object({
   METRICS_TOKEN: z.string().min(32).optional(),
   OPENAI_API_KEY: z.string().optional(),
   OPENAI_MODEL: z.string().default('gpt-4.1-mini'),
+  OPENAI_REALTIME_MODEL: z.string().default('gpt-realtime'),
 });
 
 const parsedEnv = envSchema.safeParse(process.env);

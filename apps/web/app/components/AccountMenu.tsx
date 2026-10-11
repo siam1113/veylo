@@ -10,7 +10,7 @@ const entries: Array<{ action: AccountAction; label: string; path: string }> = [
   { action: 'sign-out', label: 'Sign out', path: 'M9 4H4v16h5m5-12 4 4-4 4m-6-4h12' },
 ];
 
-export function AccountMenu({ name, email, onSelect }: { name: string; email: string; onSelect(action: AccountAction): void }) {
+export function AccountMenu({ name, email, onSelect, compact }: { name: string; email: string; onSelect(action: AccountAction): void; compact?: boolean }) {
   const [open, setOpen] = useState(false);
   const container = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -47,7 +47,7 @@ export function AccountMenu({ name, email, onSelect }: { name: string; email: st
     }
   }
 
-  return <div ref={container} className="account-menu-container" onBlur={(event) => {
+  return <div ref={container} className={`account-menu-container ${compact ? 'account-menu-container-compact' : ''}`} onBlur={(event) => {
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }}>
     {open && <div ref={menu} id={menuId} className="account-menu" role="menu" aria-label="Account" onKeyDown={handleKeys}>
@@ -55,9 +55,9 @@ export function AccountMenu({ name, email, onSelect }: { name: string; email: st
         setOpen(false); trigger.current?.focus(); onSelect(action);
       }}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={path} /></svg><span>{label}</span></button>)}
     </div>}
-    <button ref={trigger} className="profile-button" type="button" aria-label="Account menu" aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => { initialFocus.current = 0; setOpen((value) => !value); }} onKeyDown={(event) => {
+    <button ref={trigger} className={`profile-button ${compact ? 'profile-button-compact' : ''}`} type="button" aria-label={compact ? `Account menu · ${name || email || 'Your space'}` : 'Account menu'} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => { initialFocus.current = 0; setOpen((value) => !value); }} onKeyDown={(event) => {
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault(); initialFocus.current = event.key === 'ArrowUp' ? entries.length - 1 : 0; setOpen(true);
-    }}><span className="avatar" aria-hidden="true">{(name || email || 'V')[0].toUpperCase()}</span><span className="profile-copy"><b>{name || 'Your space'}</b><small>Private by default</small></span><span className="more" aria-hidden="true">···</span></button>
+    }}><span className="avatar" aria-hidden="true">{(name || email || 'V')[0].toUpperCase()}</span>{compact ? null : <><span className="profile-copy"><b>{name || 'Your space'}</b><small>Private by default</small></span><span className="more" aria-hidden="true">···</span></>}</button>
   </div>;
 }

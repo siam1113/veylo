@@ -17,6 +17,10 @@
     "dev:api": "npm run build:shared && npm run dev -w @veylo/api",
     "dev:worker": "npm run build:shared && npm run dev -w @veylo/worker",
     "dev:mobile": "npm run build -w @veylo/domain && npm run start -w @veylo/mobile",
+    "cloud:build:mobile:ios": "npm run build -w @veylo/domain && npm run cloud:build:ios -w @veylo/mobile",
+    "cloud:build:mobile:android": "npm run build -w @veylo/domain && npm run cloud:build:android -w @veylo/mobile",
+    "local:build:mobile:ios": "npm run build -w @veylo/domain && npm run local:build:ios -w @veylo/mobile",
+    "local:build:mobile:android": "npm run build -w @veylo/domain && npm run local:build:android -w @veylo/mobile",
     "db:migrate": "npm run db:migrate -w @veylo/db"
   },
   "engines": {

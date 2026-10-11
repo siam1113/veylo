@@ -7,6 +7,10 @@
   "scripts": {
     "start": "expo start",
     "build": "expo export --platform all",
+    "cloud:build:ios": "npx eas-cli build --platform ios",
+    "cloud:build:android": "npx eas-cli build --platform android",
+    "local:build:ios": "expo run:ios",
+    "local:build:android": "expo run:android",
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test test/*.test.ts"
   },

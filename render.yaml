@@ -2,6 +2,7 @@ services:
   - type: web
     name: veylo-web
     runtime: static
+    autoDeploy: true
     buildCommand: npm ci --workspace=@veylo/web --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/web
     staticPublishPath: apps/web/build/client
     routes:
@@ -22,10 +23,14 @@ services:
     name: veylo-api
     runtime: node
     region: singapore
-    plan: starter
-    buildCommand: npm ci --workspace=@veylo/api --workspace=@veylo/db --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/db && npm run build -w @veylo/api
-    startCommand: npm run start -w @veylo/api
-    preDeployCommand: npm run db:migrate
+    plan: free
+    autoDeploy: true
+    # The worker runs in this same free service (not as its own Render service) because
+    # Render's free tier has no `type: worker`, and the 750 free instance-hours/month are
+    # shared across all free services in the account — two always-on free services would
+    # exceed that budget. Both processes share this one container instead.
+    buildCommand: npm ci --workspace=@veylo/api --workspace=@veylo/worker --workspace=@veylo/db --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/db && npm run build -w @veylo/api && npm run build -w @veylo/worker
+    startCommand: npm run db:migrate -w @veylo/db && (npm run start -w @veylo/api & npm run start -w @veylo/worker & wait)
     healthCheckPath: /ready
     envVars:
       - key: NODE_ENV
@@ -46,10 +51,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: REDIS_URL
-        fromService:
-          name: veylo-queue
-          type: keyvalue
-          property: connectionString
+        sync: false
       - key: GOOGLE_CLIENT_ID
         sync: false
       - key: GOOGLE_CLIENT_SECRET
@@ -134,45 +136,15 @@ services:
         sync: false
       - key: MOBILE_REDIRECT_URI
         value: veylo:///
-
-  - type: worker
-    name: veylo-worker
-    runtime: node
-    region: singapore
-    plan: starter
-    buildCommand: npm ci --workspace=@veylo/worker --workspace=@veylo/db --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/db && npm run build -w @veylo/worker
-    startCommand: npm run start -w @veylo/worker
-    envVars:
-      - key: NODE_ENV
-        value: production
-      - key: DATABASE_URL
-        sync: false
-      - key: REDIS_URL
-        fromService:
-          name: veylo-queue
-          type: keyvalue
-          property: connectionString
       - key: OPENAI_API_KEY
         sync: false
       - key: OPENAI_MODEL
         value: gpt-4.1-mini
       - key: EXPO_ACCESS_TOKEN
         sync: false
-      - key: VAPID_PUBLIC_KEY
-        sync: false
       - key: VAPID_PRIVATE_KEY
         sync: false
       - key: VAPID_SUBJECT
         sync: false
-      - key: PUSH_SUBSCRIPTION_ENCRYPTION_KEY
-        sync: false
       - key: WORKER_CONCURRENCY
         value: "4"
-
-  - type: keyvalue
-    name: veylo-queue
-    region: singapore
-    plan: 1g
-    maxmemoryPolicy: noeviction
-    persistenceMode: journal-snapshot
-    ipAllowList: []

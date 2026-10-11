@@ -17,7 +17,7 @@ export function Layout({ children }: { children: ReactNode }) {
       <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
       <link rel="stylesheet" href="/assets/veylo.css" />
       <link rel="stylesheet" href="/assets/status.css" />
-      <script dangerouslySetInnerHTML={{ __html: `try{const saved=localStorage.getItem('veylo-theme-v1');document.documentElement.dataset.theme=saved==='light'||saved==='dark'?saved:(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light');document.getElementById('veylo-theme-color').content=document.documentElement.dataset.theme==='dark'?'#1e2823':'#eaf0ed'}catch{document.documentElement.dataset.theme='light'}` }} />
+      <script dangerouslySetInnerHTML={{ __html: `try{var saved=localStorage.getItem('veylo-theme-v1');var sys=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';var resolved=['light','dark','sepia','midnight'].indexOf(saved)>-1?saved:sys;document.documentElement.dataset.theme=resolved;document.getElementById('veylo-theme-color').content={light:'#eaf0ed',dark:'#1e2823',sepia:'#f5efe0',midnight:'#10131c'}[resolved]}catch{document.documentElement.dataset.theme='light'}` }} />
       <Meta />
       <Links />
     </head>
@@ -31,7 +31,9 @@ export function Layout({ children }: { children: ReactNode }) {
 
 export default function Root() {
   useEffect(() => {
-    if ('serviceWorker' in navigator) void navigator.serviceWorker.register('/sw.js');
+    // Skipped in dev: the service worker's /assets/ caching has a response-clone
+    // race (see public/sw.js) that was serving broken CSS during active editing.
+    if ('serviceWorker' in navigator && import.meta.env.PROD) void navigator.serviceWorker.register('/sw.js');
   }, []);
   return <Outlet />;
 }

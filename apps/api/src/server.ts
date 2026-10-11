@@ -10,6 +10,8 @@ import { alignmentRoutes } from './routes/alignments.js';
 import { intentionRoutes } from './routes/intentions.js';
 import { integrationRoutes } from './routes/integrations.js';
 import { telemetryRoutes } from './routes/telemetry.js';
+import { voiceRoutes } from './routes/voice-agent.js';
+import { spaceInsightRoutes } from './routes/space-insight.js';
 import { closeQueue } from './jobs/queue.js';
 import { isCorsOriginAllowed, parseCorsOrigins } from './cors.js';
 
@@ -97,6 +99,8 @@ await app.register(intentionRoutes, { prefix: '/v1' });
 await app.register(alignmentRoutes, { prefix: '/v1' });
 await app.register(integrationRoutes, { prefix: '/v1' });
 await app.register(telemetryRoutes, { prefix: '/v1' });
+await app.register(voiceRoutes, { prefix: '/v1' });
+await app.register(spaceInsightRoutes, { prefix: '/v1' });
 
 app.setErrorHandler((error, request, reply) => {
   request.log.error({ err: error }, 'request failed');

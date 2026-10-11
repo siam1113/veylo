@@ -319,6 +319,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       const expiredSnooze = item.state === 'snoozed' && Date.parse(item.snoozedUntil!) <= Date.now();
       const state = expiredSnooze ? 'open' : item.state;
       const snoozedUntil = state === 'snoozed' ? new Date(item.snoozedUntil!) : null;
+      const snoozedUntilIso = snoozedUntil?.toISOString() ?? null;
       await db.insert(suggestions).values({
         ownerId, intentionId, type: 'intention_nudge', rationale: 'User feedback for an intention suggestion.',
         payload: { source: 'suggestion_tray' }, state, snoozedUntil,
@@ -326,14 +327,17 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
         target: [suggestions.ownerId, suggestions.intentionId, suggestions.type],
         set: {
           state, snoozedUntil, updatedAt: new Date(),
+          // Raw sql fragments bypass Drizzle's column-aware Date serialization, so the
+          // timestamptz comparison needs an explicit ISO string, not a Date object (a bare
+          // Date here stringifies via Date#toString(), which Postgres can't parse).
           reminderClaimedAt: state === 'snoozed'
-            ? sql`CASE WHEN ${suggestions.state} = 'snoozed' AND ${suggestions.snoozedUntil} = ${snoozedUntil} THEN ${suggestions.reminderClaimedAt} ELSE NULL END`
+            ? sql`CASE WHEN ${suggestions.state} = 'snoozed' AND ${suggestions.snoozedUntil} = ${snoozedUntilIso} THEN ${suggestions.reminderClaimedAt} ELSE NULL END`
             : null,
           reminderClaimKey: state === 'snoozed'
-            ? sql`CASE WHEN ${suggestions.state} = 'snoozed' AND ${suggestions.snoozedUntil} = ${snoozedUntil} THEN ${suggestions.reminderClaimKey} ELSE NULL END`
+            ? sql`CASE WHEN ${suggestions.state} = 'snoozed' AND ${suggestions.snoozedUntil} = ${snoozedUntilIso} THEN ${suggestions.reminderClaimKey} ELSE NULL END`
             : null,
           reminderHandledAt: state === 'snoozed'
-            ? sql`CASE WHEN ${suggestions.state} = 'snoozed' AND ${suggestions.snoozedUntil} = ${snoozedUntil} THEN ${suggestions.reminderHandledAt} ELSE NULL END`
+            ? sql`CASE WHEN ${suggestions.state} = 'snoozed' AND ${suggestions.snoozedUntil} = ${snoozedUntilIso} THEN ${suggestions.reminderHandledAt} ELSE NULL END`
             : null,
         },
       });
