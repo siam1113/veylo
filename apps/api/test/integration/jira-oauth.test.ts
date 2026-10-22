@@ -4,8 +4,8 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { and, eq } from 'drizzle-orm';
-import { db, sqlClient } from '@veylo/db/client';
-import { integrations, oauthStates } from '@veylo/db/schema';
+import { db, sqlClient } from '@clearhead/db/client';
+import { integrations, oauthStates } from '@clearhead/db/schema';
 import { env } from '../../src/env.js';
 import { integrationRoutes } from '../../src/routes/integrations.js';
 import type {} from '../../src/auth.js';
@@ -30,10 +30,10 @@ test('Jira OAuth connects, refreshes after a 401, imports assigned issues, and d
 
   env.JIRA_CLIENT_ID = 'jira-client-id-for-test';
   env.JIRA_CLIENT_SECRET = 'jira-client-secret-for-test';
-  env.JIRA_REDIRECT_URI = 'https://api.veylo.test/v1/integrations/jira/callback';
+  env.JIRA_REDIRECT_URI = 'https://api.clearhead.test/v1/integrations/jira/callback';
   env.OAUTH_STATE_SECRET = 'integration-test-state-secret-with-more-than-32-chars';
   env.TOKEN_ENCRYPTION_KEY = 'integration-test-provider-token-encryption-key';
-  env.WEB_ORIGIN = 'https://app.veylo.test';
+  env.WEB_ORIGIN = 'https://app.clearhead.test';
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     const headers = new Headers(init?.headers);
@@ -50,7 +50,7 @@ test('Jira OAuth connects, refreshes after a 401, imports assigned issues, and d
     if (url === 'https://api.atlassian.com/oauth/token/accessible-resources') {
       resourceHeaders = headers;
       return new Response(JSON.stringify([{
-        id: cloudId, name: 'Veylo QA site', url: 'https://veylo-qa.atlassian.net', scopes: ['read:jira-work'],
+        id: cloudId, name: 'ClearHead QA site', url: 'https://clearhead-qa.atlassian.net', scopes: ['read:jira-work'],
       }]), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url === `https://api.atlassian.com/ex/jira/${cloudId}/rest/api/3/search/jql`) {
@@ -106,7 +106,7 @@ test('Jira OAuth connects, refreshes after a 401, imports assigned issues, and d
     });
     assert.equal(complete.statusCode, 200, complete.body);
     assert.deepEqual(complete.json<{ connected: boolean; provider: string; siteName: string }>(), {
-      connected: true, provider: 'jira_cloud', siteName: 'Veylo QA site',
+      connected: true, provider: 'jira_cloud', siteName: 'ClearHead QA site',
     });
     assert.equal(tokenCalls.length, 1);
     assert.deepEqual(tokenCalls[0]!.body, {
@@ -118,10 +118,10 @@ test('Jira OAuth connects, refreshes after a 401, imports assigned issues, and d
     const imported = await app.inject({ method: 'GET', url: '/v1/integrations/jira/issues', headers: { authorization: 'Bearer owner-token' } });
     assert.equal(imported.statusCode, 200, imported.body);
     assert.deepEqual(imported.json<{ siteName: string; issues: Array<Record<string, unknown>> }>(), {
-      siteName: 'Veylo QA site', issues: [{
+      siteName: 'ClearHead QA site', issues: [{
         id: 'issue-101', key: 'PLAN-101', summary: 'Review the garden proposal', status: 'In Progress',
         project: 'Planning', issueType: 'Task', priority: 'Medium', dueDate: '2026-11-02',
-        updatedAt: '2026-10-09T12:00:00.000Z', url: 'https://veylo-qa.atlassian.net/browse/PLAN-101',
+        updatedAt: '2026-10-09T12:00:00.000Z', url: 'https://clearhead-qa.atlassian.net/browse/PLAN-101',
       }],
     });
     assert.equal(tokenCalls.length, 2);

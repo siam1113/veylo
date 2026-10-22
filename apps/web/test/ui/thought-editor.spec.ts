@@ -1,4 +1,4 @@
-import { initialOriginalVersions, appendOriginalPiece } from '@veylo/domain';
+import { initialOriginalVersions, appendOriginalPiece } from '@clearhead/domain';
 import { test, expect } from '@playwright/test';
 
 const userId = '3078190f-ff7b-44ed-bf0e-739ef0219372';
@@ -15,8 +15,8 @@ test('thought workspace adapts fields, preserves edits and original text, and ke
   let evaluations = 0;
   let evaluationReady = false;
   await page.addInitScript(({ userId }) => {
-    localStorage.setItem('sb-127-auth-token', JSON.stringify({ access_token: 'test-token', token_type: 'bearer', refresh_token: 'test-refresh', expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, user: { id: userId, email: 'editor@veylo.test', aud: 'authenticated', role: 'authenticated' } }));
-    localStorage.setItem(`veylo-onboarding-v1:${userId}`, 'complete');
+    localStorage.setItem('sb-127-auth-token', JSON.stringify({ access_token: 'test-token', token_type: 'bearer', refresh_token: 'test-refresh', expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, user: { id: userId, email: 'editor@clearhead.test', aud: 'authenticated', role: 'authenticated' } }));
+    localStorage.setItem(`clearhead-onboarding-v1:${userId}`, 'complete');
   }, { userId });
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1', '');
@@ -76,12 +76,12 @@ test('thought workspace adapts fields, preserves edits and original text, and ke
   await dump.getByRole('button', { name: 'Keep this piece' }).click();
   await expect.poll(() => row.originalVersions.length).toBe(2);
   await expect(workspace.getByText('Version 2', { exact: true })).toBeVisible();
-  await page.screenshot({ path: '/tmp/veylo-thought-desktop.png', fullPage: true });
+  await page.screenshot({ path: '/tmp/clearhead-thought-desktop.png', fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('button', { name: 'Back to Explore' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Explore', exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
-  await page.screenshot({ path: '/tmp/veylo-thought-mobile.png', fullPage: true });
+  await page.screenshot({ path: '/tmp/clearhead-thought-mobile.png', fullPage: true });
   await page.getByRole('button', { name: 'Back to Explore' }).click();
   await expect(workspace).not.toBeVisible();
   await page.getByRole('button').filter({ has: page.getByRole('heading', { name: 'A reading room' }) }).click();

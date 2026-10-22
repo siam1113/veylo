@@ -3,7 +3,7 @@ services:
     name: veylo-web
     runtime: static
     autoDeploy: true
-    buildCommand: npm ci --workspace=@veylo/web --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/web
+    buildCommand: npm ci --workspace=@clearhead/web --workspace=@clearhead/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @clearhead/domain && npm run build -w @clearhead/web
     staticPublishPath: apps/web/build/client
     routes:
       - type: rewrite
@@ -29,8 +29,8 @@ services:
     # Render's free tier has no `type: worker`, and the 750 free instance-hours/month are
     # shared across all free services in the account — two always-on free services would
     # exceed that budget. Both processes share this one container instead.
-    buildCommand: npm ci --workspace=@veylo/api --workspace=@veylo/worker --workspace=@veylo/db --workspace=@veylo/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @veylo/domain && npm run build -w @veylo/db && npm run build -w @veylo/api && npm run build -w @veylo/worker
-    startCommand: npm run db:migrate -w @veylo/db && (npm run start -w @veylo/api & npm run start -w @veylo/worker & wait)
+    buildCommand: npm ci --workspace=@clearhead/api --workspace=@clearhead/worker --workspace=@clearhead/db --workspace=@clearhead/domain --include-workspace-root=false --include=dev --legacy-peer-deps --no-audit --no-fund && npm run build -w @clearhead/domain && npm run build -w @clearhead/db && npm run build -w @clearhead/api && npm run build -w @clearhead/worker
+    startCommand: npm run db:migrate -w @clearhead/db && (npm run start -w @clearhead/api & npm run start -w @clearhead/worker & wait)
     healthCheckPath: /ready
     envVars:
       - key: NODE_ENV

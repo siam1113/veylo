@@ -4,19 +4,21 @@ import webPush from 'web-push';
 import { createDecipheriv, createHash, randomUUID } from 'node:crypto';
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
-import { and, desc, eq, inArray, isNull, lt, lte, ne, or } from 'drizzle-orm';
-import { db, sqlClient } from '@veylo/db/client';
-import { brainstormMessages, intentions, pushDevices, pushPreferences, suggestions, webPushSubscriptions } from '@veylo/db/schema';
-import { originalContext, initialOriginalVersions, originalGistsSchema } from '@veylo/domain';
+import { and, desc, eq, inArray, isNull, lt, lte, ne, notInArray, or, sql } from 'drizzle-orm';
+import { db, sqlClient } from '@clearhead/db/client';
+import { brainstormMessages, calendarPushes, integrations, intentionRelationships, intentionRevisions, intentions, pushDevices, pushPreferences, suggestions, timeBlocks, webPushSubscriptions } from '@clearhead/db/schema';
+import { originalContext, initialOriginalVersions, originalGistsSchema } from '@clearhead/domain';
 import { interpretCapture, type InterpretationProvider } from './interpretation.js';
 import { groundCaptureWithLaya } from './laya-grounding.js';
 import { quietUntil } from './quiet-hours.js';
+import { syncGoogleCalendarForIntegration } from './google-calendar-sync.js';
+import { syncOutlookCalendarForIntegration } from './outlook-calendar-sync.js';
 
 const redisUrl = process.env.REDIS_URL;
 const apiKey = process.env.OPENAI_API_KEY;
 const expoAccessToken = process.env.EXPO_ACCESS_TOKEN;
 if (!redisUrl || !process.env.DATABASE_URL) {
-  throw new Error('REDIS_URL and DATABASE_URL are required by the Veylo worker.');
+  throw new Error('REDIS_URL and DATABASE_URL are required by the ClearHead worker.');
 }
 const openai = apiKey ? new OpenAI({ apiKey, timeout: 30_000, maxRetries: 0 }) : null;
 const interpretationProvider: InterpretationProvider | null = openai ? {
@@ -28,6 +30,48 @@ const connection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 const reminderQueueConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
 const reminderQueue = new Queue('veylo-ai', { connection: reminderQueueConnection });
 const model = process.env.OPENAI_MODEL || 'gpt-4.1-mini';
+
+// Mirrors apps/api/src/routes/intentions.ts HIDDEN_STATUSES - neither archived nor trashed
+// thoughts should get reminders, brainstorm replies, or AI interpretation.
+const HIDDEN_STATUSES: string[] = ['archived', 'trashed'];
+const TRASH_RETENTION_DAYS = Number(process.env.TRASH_RETENTION_DAYS || 30);
+
+// Covers both Google and Outlook now (CALENDAR_SYNC_INTERVAL_MS); the old Google-only env
+// var name still works as a fallback for deployments that already set it.
+const CALENDAR_SYNC_INTERVAL_MS = Number(process.env.CALENDAR_SYNC_INTERVAL_MS || process.env.GOOGLE_CALENDAR_SYNC_INTERVAL_MS || 60 * 60_000);
+const CALENDAR_SYNC_PROVIDERS = ['google_calendar', 'outlook'] as const;
+type CalendarSyncProvider = typeof CALENDAR_SYNC_PROVIDERS[number];
+// Pre-dates the Google/Outlook sync merge below. A renamed/replaced upsertJobScheduler call
+// never deletes the repeatable job it superseded - BullMQ keeps re-enqueueing it from Redis
+// on its own schedule forever, independent of what this file does on startup. That zombie
+// produced a 'google-calendar-sync-tick' job with no payload every 5 minutes, which matched
+// none of the worker's job.name branches below and fell through into the AI-interpretation
+// handler, which failed on the missing intentionId/ownerId every single time - an invisible,
+// permanent failure loop. Removing it here is a one-time cleanup, safe to run repeatedly
+// (no-op once gone) and safe to leave in so any other environment still carrying this old
+// Redis state self-heals on its next deploy.
+void reminderQueue.removeJobScheduler('google-calendar-sync-tick-scheduler')
+  .catch((error: unknown) => console.error(JSON.stringify({ event: 'legacy_calendar_sync_scheduler_cleanup_failed', errorName: error instanceof Error ? error.name : 'unknown' })));
+void reminderQueue.upsertJobScheduler('calendar-sync-tick-scheduler', { every: CALENDAR_SYNC_INTERVAL_MS }, {
+  name: 'calendar-sync-tick',
+  opts: { removeOnComplete: true, removeOnFail: { age: 7 * 24 * 60 * 60, count: 100 } },
+}).catch((error: unknown) => console.error(JSON.stringify({ event: 'calendar_sync_scheduler_failed', errorName: error instanceof Error ? error.name : 'unknown' })));
+void reminderQueue.upsertJobScheduler('trash-purge-tick-scheduler', { every: 24 * 60 * 60_000 }, {
+  name: 'trash-purge-tick',
+  opts: { removeOnComplete: true, removeOnFail: { age: 7 * 24 * 60 * 60, count: 100 } },
+}).catch((error: unknown) => console.error(JSON.stringify({ event: 'trash_purge_scheduler_failed', errorName: error instanceof Error ? error.name : 'unknown' })));
+
+// One job per connected integration row, not per owner - a user can have more than one
+// Google/Outlook account, and each needs its own sync cursor (syncToken/deltaLink).
+async function enqueueCalendarSyncJob(integrationId: string, provider: CalendarSyncProvider) {
+  const jobId = `calendar-sync-${integrationId}`;
+  const existing = await reminderQueue.getJob(jobId);
+  if (existing && (await existing.getState()) === 'failed') { await existing.retry(); return; }
+  await reminderQueue.add('calendar-sync', { integrationId, provider }, {
+    jobId, attempts: 3, backoff: { type: 'exponential', delay: 10_000 },
+    removeOnComplete: true, removeOnFail: { age: 7 * 24 * 60 * 60, count: 1000 },
+  });
+}
 
 function decryptSubscription(value: string): { endpoint: string; expirationTime: number | null; keys: { p256dh: string; auth: string } } {
   const keyHex = process.env.PUSH_SUBSCRIPTION_ENCRYPTION_KEY;
@@ -44,8 +88,60 @@ function endpointHash(endpoint: string) { return createHash('sha256').update(end
 type JobData = { intentionId: string; ownerId: string; expectedVersion: number; evaluateOnly?: boolean };
 type ReminderJobData = { intentionId: string; ownerId: string; snoozedUntil: string };
 type BrainstormJobData = { intentionId: string; ownerId: string; userMessageId: string; assistantMessageId: string };
+type CalendarSyncJobData = { integrationId: string; provider: CalendarSyncProvider };
+type CalendarSyncTickJobData = Record<string, never>;
 
-const worker = new Worker<JobData | ReminderJobData | BrainstormJobData>('veylo-ai', async (job) => {
+const worker = new Worker<JobData | ReminderJobData | BrainstormJobData | CalendarSyncJobData | CalendarSyncTickJobData>('veylo-ai', async (job) => {
+  if (job.name === 'calendar-sync-tick') {
+    const rows = await db.select({ id: integrations.id, provider: integrations.provider }).from(integrations)
+      .where(and(inArray(integrations.provider, CALENDAR_SYNC_PROVIDERS), isNull(integrations.revokedAt)));
+    for (const row of rows) {
+      await enqueueCalendarSyncJob(row.id, row.provider as CalendarSyncProvider).catch((error: unknown) =>
+        console.error(JSON.stringify({ event: 'calendar_sync_enqueue_failed', integrationId: row.id, provider: row.provider, errorName: error instanceof Error ? error.name : 'unknown' })));
+    }
+    return { fannedOut: rows.length };
+  }
+  if (job.name === 'trash-purge-tick') {
+    // Mirrors the scrub transaction in apps/api/src/routes/intentions.ts' DELETE /intentions/:id -
+    // same destructive, irreversible cleanup, just run on a timer against anything that has sat
+    // in trash past the retention window instead of on an explicit "Delete Forever" request.
+    const cutoff = new Date(Date.now() - TRASH_RETENTION_DAYS * 24 * 60 * 60_000);
+    const due = await db.select({ id: intentions.id, ownerId: intentions.ownerId }).from(intentions).where(and(
+      eq(intentions.status, 'trashed'), isNull(intentions.deletedAt), lt(intentions.trashedAt, cutoff),
+    ));
+    let purged = 0;
+    for (const row of due) {
+      const now = new Date();
+      await db.transaction(async (tx) => {
+        await tx.delete(intentionRevisions).where(and(eq(intentionRevisions.ownerId, row.ownerId), eq(intentionRevisions.intentionId, row.id)));
+        const [updated] = await tx.update(intentions).set({
+          originalVersions: [], rawCapture: 'Deleted intention', title: 'Deleted intention', kind: 'unclassified',
+          intent: null, purpose: null, desiredOutcome: null, roughPlan: null, horizon: null,
+          effortEstimate: null, energyContext: null, customFields: [], aiMetadata: {}, status: 'archived', deletedAt: now,
+          createdAt: now, updatedAt: now, version: sql`${intentions.version} + 1`,
+        }).where(and(eq(intentions.id, row.id), eq(intentions.ownerId, row.ownerId), eq(intentions.status, 'trashed'), isNull(intentions.deletedAt)))
+          .returning({ id: intentions.id });
+        if (!updated) return;
+        await tx.update(calendarPushes).set({ deletedAt: now }).where(and(
+          inArray(calendarPushes.timeBlockId, tx.select({ id: timeBlocks.id }).from(timeBlocks).where(and(eq(timeBlocks.intentionId, row.id), eq(timeBlocks.ownerId, row.ownerId)))),
+          isNull(calendarPushes.deletedAt),
+        ));
+        await tx.update(timeBlocks).set({
+          startsAt: now, endsAt: new Date(now.getTime() + 1_000), timezone: 'UTC',
+          externalProvider: null, externalEventId: null, externalUrl: null, syncState: 'local', deletedAt: now, createdAt: now, updatedAt: now,
+        }).where(and(eq(timeBlocks.intentionId, row.id), eq(timeBlocks.ownerId, row.ownerId)));
+        await tx.delete(intentionRelationships).where(and(eq(intentionRelationships.ownerId, row.ownerId), eq(intentionRelationships.fromId, row.id)));
+        await tx.delete(intentionRelationships).where(and(eq(intentionRelationships.ownerId, row.ownerId), eq(intentionRelationships.toId, row.id)));
+        await tx.delete(suggestions).where(and(eq(suggestions.ownerId, row.ownerId), eq(suggestions.intentionId, row.id)));
+        purged += 1;
+      }).catch((error: unknown) => console.error(JSON.stringify({ event: 'trash_purge_failed', intentionId: row.id, errorName: error instanceof Error ? error.name : 'unknown' })));
+    }
+    return { due: due.length, purged };
+  }
+  if (job.name === 'calendar-sync') {
+    const data = job.data as CalendarSyncJobData;
+    return data.provider === 'outlook' ? syncOutlookCalendarForIntegration(data.integrationId) : syncGoogleCalendarForIntegration(data.integrationId);
+  }
   if (job.name === 'suggestion-reminder') {
     const reminder = job.data as ReminderJobData;
     const [current] = await db.select({
@@ -60,7 +156,7 @@ const worker = new Worker<JobData | ReminderJobData | BrainstormJobData>('veylo-
         eq(suggestions.snoozedUntil, new Date(reminder.snoozedUntil)), lte(suggestions.snoozedUntil, new Date()),
         isNull(suggestions.reminderHandledAt),
         eq(pushPreferences.enabled, true),
-        eq(intentions.ownerId, reminder.ownerId), isNull(intentions.deletedAt), ne(intentions.status, 'archived'), ne(intentions.status, 'completed'),
+        eq(intentions.ownerId, reminder.ownerId), isNull(intentions.deletedAt), notInArray(intentions.status, HIDDEN_STATUSES), ne(intentions.status, 'completed'),
       )).limit(1);
     if (!current) return { skipped: true, reason: 'Reminder is no longer current or enabled' };
     const quietEnd = quietUntil(new Date(), current.timezone, current.quietStart, current.quietEnd);
@@ -184,7 +280,7 @@ const worker = new Worker<JobData | ReminderJobData | BrainstormJobData>('veylo-
         purpose: intentions.purpose, desiredOutcome: intentions.desiredOutcome, roughPlan: intentions.roughPlan,
       }).from(intentions).where(and(
         eq(intentions.id, data.intentionId), eq(intentions.ownerId, data.ownerId), isNull(intentions.deletedAt),
-        ne(intentions.status, 'archived'),
+        notInArray(intentions.status, HIDDEN_STATUSES),
       )).limit(1);
       const [preference] = await db.select({ enabled: pushPreferences.aiInterpretationEnabled }).from(pushPreferences)
         .where(eq(pushPreferences.ownerId, data.ownerId)).limit(1);
@@ -243,12 +339,17 @@ const worker = new Worker<JobData | ReminderJobData | BrainstormJobData>('veylo-
       throw error;
     }
   }
+  // Catches jobs from a name no branch above recognizes - stale repeatable schedulers left
+  // over from a prior refactor are exactly this shape (real payload, orphaned name). Without
+  // this check they fall through into the interpretation path below with the wrong job.data
+  // shape and fail opaquely on every run instead of here, once, with a clear error.
+  if (job.name !== 'interpret-intention') throw new Error(`Unrecognized job name: ${job.name}`);
   if (!interpretationProvider) throw new Error('OPENAI_API_KEY is required to process AI interpretation jobs.');
   const data = job.data as JobData;
   const [row] = await db.select().from(intentions).where(and(
     eq(intentions.id, data.intentionId), eq(intentions.ownerId, data.ownerId), isNull(intentions.deletedAt),
   )).limit(1);
-  if (!row || row.version !== data.expectedVersion || (data.evaluateOnly ? row.status === 'archived' : !['captured', 'exploring'].includes(row.status))) return { skipped: true };
+  if (!row || row.version !== data.expectedVersion || (data.evaluateOnly ? HIDDEN_STATUSES.includes(row.status) : !['captured', 'exploring'].includes(row.status))) return { skipped: true };
   const [preference] = await db.select({ enabled: pushPreferences.aiInterpretationEnabled }).from(pushPreferences)
     .where(eq(pushPreferences.ownerId, data.ownerId)).limit(1);
   if (!preference?.enabled) return { skipped: true, reason: 'AI interpretation is disabled' };
@@ -287,7 +388,7 @@ const worker = new Worker<JobData | ReminderJobData | BrainstormJobData>('veylo-
     },
     updatedAt: new Date(), version: row.version + 1,
   }).where(and(
-    eq(intentions.id, row.id), eq(intentions.ownerId, row.ownerId), eq(intentions.version, data.expectedVersion), data.evaluateOnly ? ne(intentions.status, 'archived') : inArray(intentions.status, ['captured', 'exploring']), isNull(intentions.deletedAt),
+    eq(intentions.id, row.id), eq(intentions.ownerId, row.ownerId), eq(intentions.version, data.expectedVersion), data.evaluateOnly ? notInArray(intentions.status, HIDDEN_STATUSES) : inArray(intentions.status, ['captured', 'exploring']), isNull(intentions.deletedAt),
   )).returning({ id: intentions.id });
   return { intentionId: updated?.id, skipped: !updated };
 }, { connection, concurrency: Number(process.env.WORKER_CONCURRENCY || 4) });

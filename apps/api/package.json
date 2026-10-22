@@ -1,5 +1,5 @@
 {
-  "name": "@veylo/api",
+  "name": "@clearhead/api",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -14,15 +14,15 @@
     "test:jira-contract": "node --experimental-strip-types --test test/jira-issues.test.ts",
     "test:notion-contract": "node --experimental-strip-types --test test/notion-pagination.test.ts",
     "test:supabase-key": "node --experimental-strip-types --test test/supabase-admin-key.test.ts",
-    "test:integration": "npm run build -w @veylo/domain && npm run build -w @veylo/db && tsx --test test/integration/*.test.ts"
+    "test:integration": "npm run build -w @clearhead/domain && npm run build -w @clearhead/db && tsx --test test/integration/*.test.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.1.0",
     "@fastify/helmet": "^13.0.2",
     "@fastify/rate-limit": "^10.3.0",
     "@supabase/supabase-js": "^2.57.4",
-    "@veylo/db": "*",
-    "@veylo/domain": "*",
+    "@clearhead/db": "*",
+    "@clearhead/domain": "*",
     "@xmldom/xmldom": "0.8.15",
     "bullmq": "^5.58.5",
     "dotenv": "^16.6.1",

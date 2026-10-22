@@ -4,8 +4,8 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { and, eq } from 'drizzle-orm';
-import { db, sqlClient } from '@veylo/db/client';
-import { integrations, oauthStates } from '@veylo/db/schema';
+import { db, sqlClient } from '@clearhead/db/client';
+import { integrations, oauthStates } from '@clearhead/db/schema';
 import { env } from '../../src/env.js';
 import { integrationRoutes } from '../../src/routes/integrations.js';
 import type {} from '../../src/auth.js';
@@ -32,10 +32,10 @@ test('Notion OAuth connects, refreshes after a 401, paginates references, and re
 
   env.NOTION_CLIENT_ID = 'notion-client-id-for-test';
   env.NOTION_CLIENT_SECRET = 'notion-client-secret-for-test';
-  env.NOTION_REDIRECT_URI = 'https://api.veylo.test/v1/integrations/notion/callback';
+  env.NOTION_REDIRECT_URI = 'https://api.clearhead.test/v1/integrations/notion/callback';
   env.OAUTH_STATE_SECRET = 'integration-test-state-secret-with-more-than-32-chars';
   env.TOKEN_ENCRYPTION_KEY = 'integration-test-provider-token-encryption-key';
-  env.WEB_ORIGIN = 'https://app.veylo.test';
+  env.WEB_ORIGIN = 'https://app.clearhead.test';
   globalThis.fetch = async (input, init) => {
     const url = String(input);
     const headers = new Headers(init?.headers);
@@ -46,7 +46,7 @@ test('Notion OAuth connects, refreshes after a 401, paginates references, and re
       return new Response(JSON.stringify({
         access_token: refreshing ? 'notion-refreshed-access-token' : 'notion-access-token',
         refresh_token: refreshing ? 'notion-rotated-refresh-token' : 'notion-refresh-token', expires_in: 3600,
-        workspace_id: randomUUID(), workspace_name: 'Veylo Test Workspace', bot_id: randomUUID(),
+        workspace_id: randomUUID(), workspace_name: 'ClearHead Test Workspace', bot_id: randomUUID(),
       }), { status: 200, headers: { 'Content-Type': 'application/json' } });
     }
     if (url === 'https://api.notion.com/v1/search') {

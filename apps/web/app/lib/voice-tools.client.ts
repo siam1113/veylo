@@ -1,4 +1,4 @@
-import { voiceToolArgsSchemas, voiceToolNames, voiceToolRequiresConfirm, type VoiceToolName } from '@veylo/domain';
+import { voiceToolArgsSchemas, voiceToolNames, voiceToolRequiresConfirm, type VoiceToolName } from '@clearhead/domain';
 
 export type VoiceIntentionSummary = { id: string; title: string; kind: string; status: string; horizon?: string | null; updatedAt: string };
 export type VoiceIntentionDetail = VoiceIntentionSummary & {
@@ -11,7 +11,7 @@ export type VoiceActionResult = { ok: boolean; error?: string; needsConfirmation
 /** Every method here calls the exact same handler the manual UI uses (updateItem,
  * changeView, syncClient, ...) — the voice path never bypasses local-first sync. */
 export type VoiceActions = {
-  listIntentions(filter: 'active' | 'archived' | 'all'): VoiceIntentionSummary[];
+  listIntentions(filter: 'active' | 'archived' | 'trashed' | 'all'): VoiceIntentionSummary[];
   getIntention(id: string): VoiceIntentionDetail | null;
   listRelationships(): VoiceRelationshipSummary[];
   getPreferences(): Record<string, unknown>;
@@ -22,6 +22,8 @@ export type VoiceActions = {
   updateIntention(id: string, patch: Record<string, unknown>): VoiceActionResult;
   archiveIntention(id: string): VoiceActionResult;
   restoreIntention(id: string): VoiceActionResult;
+  trashIntention(id: string): VoiceActionResult;
+  restoreFromTrash(id: string): VoiceActionResult;
 
   scheduleTimeBlock(intentionId: string, date: string, time: string, durationMinutes: number): VoiceActionResult;
   removeTimeBlock(intentionId: string, blockId: string): VoiceActionResult;
@@ -59,7 +61,7 @@ export function createVoiceToolExecutor(actions: VoiceActions) {
 
     try {
       switch (name) {
-        case 'list_intentions': return { intentions: actions.listIntentions(args.filter as 'active' | 'archived' | 'all') };
+        case 'list_intentions': return { intentions: actions.listIntentions(args.filter as 'active' | 'archived' | 'trashed' | 'all') };
         case 'get_intention': return actions.getIntention(args.id as string) ?? { error: 'No intention with that id.' };
         case 'list_relationships': return { relationships: actions.listRelationships() };
         case 'get_preferences': return actions.getPreferences();
@@ -70,6 +72,8 @@ export function createVoiceToolExecutor(actions: VoiceActions) {
         case 'update_intention': { const { id, ...patch } = args; return actions.updateIntention(id as string, patch); }
         case 'archive_intention': return actions.archiveIntention(args.id as string);
         case 'restore_intention': return actions.restoreIntention(args.id as string);
+        case 'trash_intention': return actions.trashIntention(args.id as string);
+        case 'restore_from_trash': return actions.restoreFromTrash(args.id as string);
 
         case 'schedule_time_block': return actions.scheduleTimeBlock(args.intentionId as string, args.date as string, args.time as string, (args.durationMinutes as number | undefined) ?? 30);
         case 'remove_time_block': return actions.removeTimeBlock(args.intentionId as string, args.blockId as string);

@@ -3,8 +3,8 @@ const userId = '3078190f-ff7b-44ed-bf0e-739ef0219372';
 test('Align creates a standalone entry in its own editor and restores it after reload', async ({ page }) => {
   const entries = new Map<string, Record<string, unknown>>();
   await page.addInitScript(({ userId }) => {
-    localStorage.setItem('sb-127-auth-token', JSON.stringify({ access_token: 'test-token', token_type: 'bearer', refresh_token: 'test-refresh', expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, user: { id: userId, email: 'align@veylo.test', aud: 'authenticated', role: 'authenticated' } }));
-    localStorage.setItem(`veylo-onboarding-v1:${userId}`, 'complete');
+    localStorage.setItem('sb-127-auth-token', JSON.stringify({ access_token: 'test-token', token_type: 'bearer', refresh_token: 'test-refresh', expires_at: Math.floor(Date.now() / 1000) + 3600, expires_in: 3600, user: { id: userId, email: 'align@clearhead.test', aud: 'authenticated', role: 'authenticated' } }));
+    localStorage.setItem(`clearhead-onboarding-v1:${userId}`, 'complete');
   }, { userId });
   await page.route('**/api/v1/**', async (route) => {
     const path = new URL(route.request().url()).pathname.replace('/api/v1', ''); let result: unknown = {};
@@ -45,10 +45,12 @@ test('Align creates a standalone entry in its own editor and restores it after r
   await page.getByRole('button', { name: 'Close dumping thoughts' }).click();
   await page.getByRole('button', { name: 'Align', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'A calmer morning' })).toBeVisible();
-  await page.getByRole('button', { name: 'Archive', exact: true }).click();
+  await page.getByRole('button', { name: 'More actions for A calmer morning' }).click();
+  await page.getByRole('menuitem', { name: 'Archive', exact: true }).click();
   await page.getByRole('button', { name: 'Archived', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'A calmer morning' })).toBeVisible();
-  await page.getByRole('button', { name: 'Restore', exact: true }).click();
+  await page.getByRole('button', { name: 'More actions for A calmer morning' }).click();
+  await page.getByRole('menuitem', { name: 'Restore', exact: true }).click();
   await page.getByRole('button', { name: /^All/ }).click();
   await expect(page.getByRole('heading', { name: 'A calmer morning' })).toBeVisible();
 });

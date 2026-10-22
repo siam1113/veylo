@@ -3,10 +3,11 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import { connectionIsActive, authorizationUrl, exchangeProviderToken, pkceVerifier, readProviderEntries } from '../src/connection-providers.js';
 
-// No database or real provider account is needed for these contract checks.
+// No database, queue, or real provider account is needed for these contract checks.
 process.env.DATABASE_URL = 'postgres://test:test@localhost:1/test';
 process.env.SUPABASE_URL = 'https://test.supabase.co';
 process.env.SUPABASE_PUBLISHABLE_KEY = 'test-only';
+process.env.REDIS_URL = ''; // Importing integrations.js now pulls in jobs/queue.js; an empty REDIS_URL keeps its Queue/Redis client null (dotenv's override:false won't refill an already-set key) instead of attempting a real connection.
 const { env } = await import('../src/env.js');
 const { integrationRoutes } = await import('../src/routes/integrations.js');
 
@@ -24,6 +25,35 @@ test('an unconfigured Connect explains setup without issuing an OAuth state', as
     assert.equal(catalog.json().providers.length, 13);
     assert.equal(catalog.json().providers.find((item: { provider: string }) => item.provider === 'google_calendar').configured, false);
   } finally { env.GOOGLE_CLIENT_ID = previous; await app.close(); }
+});
+
+test('Google sync-now and events routes require a signed-in owner', async () => {
+  const app = Fastify(); app.decorateRequest('ownerId', null); app.register(integrationRoutes);
+  try {
+    const syncNow = await app.inject({ method: 'POST', url: '/integrations/google/sync-now' });
+    assert.equal(syncNow.statusCode, 401); assert.equal(syncNow.headers['cache-control'], 'no-store');
+    const events = await app.inject({ method: 'POST', url: '/integrations/google/events', payload: {} });
+    assert.equal(events.statusCode, 401);
+  } finally { await app.close(); }
+});
+
+test('PATCH /integrations/:id requires a signed-in owner and a valid nickname/icon payload', async () => {
+  const app = Fastify(); app.decorateRequest('ownerId', null); app.register(integrationRoutes);
+  try {
+    const id = '00000000-0000-0000-0000-000000000000';
+    const unauthenticated = await app.inject({ method: 'PATCH', url: `/integrations/${id}`, payload: { customLabel: 'Work calendar' } });
+    assert.equal(unauthenticated.statusCode, 401);
+
+    const authenticated = Fastify(); authenticated.decorateRequest('ownerId', null);
+    authenticated.addHook('preHandler', async (request) => { request.ownerId = 'test-owner'; });
+    authenticated.register(integrationRoutes);
+    try {
+      const tooLongIcon = await authenticated.inject({ method: 'PATCH', url: `/integrations/${id}`, payload: { customIcon: 'way too long to be an icon' } });
+      assert.equal(tooLongIcon.statusCode, 400);
+      const tooLongLabel = await authenticated.inject({ method: 'PATCH', url: `/integrations/${id}`, payload: { customLabel: 'x'.repeat(61) } });
+      assert.equal(tooLongLabel.statusCode, 400);
+    } finally { await authenticated.close(); }
+  } finally { await app.close(); }
 });
 
 test('access-token-only connections are active and revoked ones stay disconnected', () => {

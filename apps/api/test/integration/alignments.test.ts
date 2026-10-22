@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import Fastify from 'fastify';
-import { sqlClient } from '@veylo/db/client';
+import { sqlClient } from '@clearhead/db/client';
 import { alignmentRoutes } from '../../src/routes/alignments.js';
 import type {} from '../../src/auth.js';
 
 // Run only against an explicitly designated disposable database with migration 0016.
-test('standalone Align entries are idempotent, versioned, and owner scoped', { skip: process.env.VEYLO_DB_TESTS !== '1' }, async () => {
+test('standalone Align entries are idempotent, versioned, and owner scoped', { skip: process.env.CLEARHEAD_DB_TESTS !== '1' }, async () => {
   const owner = randomUUID(); const other = randomUUID(); const id = randomUUID();
   const app = Fastify();
   app.decorateRequest('ownerId', null);

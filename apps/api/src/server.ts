@@ -4,14 +4,16 @@ import helmet from '@fastify/helmet';
 import rateLimit from '@fastify/rate-limit';
 import { env } from './env.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { sqlClient } from '@veylo/db/client';
+import { sqlClient } from '@clearhead/db/client';
 import { authenticate } from './auth.js';
 import { alignmentRoutes } from './routes/alignments.js';
 import { intentionRoutes } from './routes/intentions.js';
 import { integrationRoutes } from './routes/integrations.js';
+import { calendarPushRoutes } from './routes/calendar-pushes.js';
 import { telemetryRoutes } from './routes/telemetry.js';
 import { voiceRoutes } from './routes/voice-agent.js';
-import { spaceInsightRoutes } from './routes/space-insight.js';
+import { textPolishRoutes } from './routes/text-polish.js';
+import { spaceCoachRoutes } from './routes/space-coach.js';
 import { closeQueue } from './jobs/queue.js';
 import { isCorsOriginAllowed, parseCorsOrigins } from './cors.js';
 
@@ -56,13 +58,13 @@ await app.register(cors, { origin: (origin, callback) => callback(null, isCorsOr
 await app.register(rateLimit, { max: 120, timeWindow: '1 minute' });
 app.addHook('preHandler', authenticate);
 
-app.get('/health', async () => ({ status: 'ok', service: 'veylo-api' }));
+app.get('/health', async () => ({ status: 'ok', service: 'clearhead-api' }));
 app.get('/ready', async (_request, reply) => {
   try {
     await sqlClient`SELECT 1`;
-    return { status: 'ready', service: 'veylo-api' };
+    return { status: 'ready', service: 'clearhead-api' };
   } catch {
-    return reply.code(503).send({ status: 'not_ready', service: 'veylo-api' });
+    return reply.code(503).send({ status: 'not_ready', service: 'clearhead-api' });
   }
 });
 app.get('/metrics', async (request, reply) => {
@@ -72,22 +74,22 @@ app.get('/metrics', async (request, reply) => {
   if (!providedToken || !timingSafeEqual(createHash('sha256').update(providedToken).digest(), createHash('sha256').update(env.METRICS_TOKEN).digest())) {
     return reply.code(401).send('unauthorized');
   }
-  const lines = ['# HELP veylo_http_requests_total Total HTTP responses served by the API.', '# TYPE veylo_http_requests_total counter'];
+  const lines = ['# HELP clearhead_http_requests_total Total HTTP responses served by the API.', '# TYPE clearhead_http_requests_total counter'];
   for (const [serialized, count] of requestCounts) {
     const [method, route, status] = JSON.parse(serialized) as [string, string, number];
-    lines.push(`veylo_http_requests_total{method="${escapeLabel(method)}",route="${escapeLabel(route)}",status_code="${status}"} ${count}`);
+    lines.push(`clearhead_http_requests_total{method="${escapeLabel(method)}",route="${escapeLabel(route)}",status_code="${status}"} ${count}`);
   }
-  lines.push('# HELP veylo_http_request_duration_seconds HTTP response duration in seconds.', '# TYPE veylo_http_request_duration_seconds histogram');
+  lines.push('# HELP clearhead_http_request_duration_seconds HTTP response duration in seconds.', '# TYPE clearhead_http_request_duration_seconds histogram');
   for (const [serialized, count] of durationCounts) {
     const [method, route] = JSON.parse(serialized) as [string, string];
     const labels = `method="${escapeLabel(method)}",route="${escapeLabel(route)}"`;
     const buckets = durationBuckets.get(serialized) ?? [];
     metricBuckets.forEach((bound, index) => {
-      lines.push(`veylo_http_request_duration_seconds_bucket{${labels},le="${bound}"} ${buckets[index] ?? 0}`);
+      lines.push(`clearhead_http_request_duration_seconds_bucket{${labels},le="${bound}"} ${buckets[index] ?? 0}`);
     });
-    lines.push(`veylo_http_request_duration_seconds_bucket{${labels},le="+Inf"} ${count}`);
-    lines.push(`veylo_http_request_duration_seconds_sum{${labels}} ${durationSums.get(serialized) ?? 0}`);
-    lines.push(`veylo_http_request_duration_seconds_count{${labels}} ${count}`);
+    lines.push(`clearhead_http_request_duration_seconds_bucket{${labels},le="+Inf"} ${count}`);
+    lines.push(`clearhead_http_request_duration_seconds_sum{${labels}} ${durationSums.get(serialized) ?? 0}`);
+    lines.push(`clearhead_http_request_duration_seconds_count{${labels}} ${count}`);
   }
   const memory = process.memoryUsage();
   lines.push('# HELP process_uptime_seconds API process uptime in seconds.', '# TYPE process_uptime_seconds gauge', `process_uptime_seconds ${process.uptime()}`);
@@ -98,9 +100,11 @@ app.get('/metrics', async (request, reply) => {
 await app.register(intentionRoutes, { prefix: '/v1' });
 await app.register(alignmentRoutes, { prefix: '/v1' });
 await app.register(integrationRoutes, { prefix: '/v1' });
+await app.register(calendarPushRoutes, { prefix: '/v1' });
 await app.register(telemetryRoutes, { prefix: '/v1' });
 await app.register(voiceRoutes, { prefix: '/v1' });
-await app.register(spaceInsightRoutes, { prefix: '/v1' });
+await app.register(textPolishRoutes, { prefix: '/v1' });
+await app.register(spaceCoachRoutes, { prefix: '/v1' });
 
 app.setErrorHandler((error, request, reply) => {
   request.log.error({ err: error }, 'request failed');

@@ -23,7 +23,9 @@ export function connectionIsActive(row: { revokedAt: Date | null; encryptedAcces
 export type ProviderConfig = { clientId: string; clientSecret: string; redirectUri: string };
 export const providerScopes: Record<AdditionalProvider, string[]> = {
   todoist: ['data:read'], microsoft_todo: ['offline_access', 'Tasks.Read'], linear: ['read'], github: [], slack: ['search:read'],
-  outlook: ['offline_access', 'Calendars.ReadBasic'], clickup: [],
+  // ReadWrite (not just ReadBasic) so ClearHead can push time blocks to Outlook, not only preview them.
+  // Every connection made before this widened scope must reconnect before push will work for it.
+  outlook: ['offline_access', 'Calendars.ReadWrite'], clickup: [],
   asana: ['tasks:read', 'workspaces:read', 'users:read'],
   trello: ['read:member:trello', 'read:board:trello', 'read:card:trello', 'offline_access'],
 };
@@ -83,7 +85,7 @@ export async function exchangeProviderToken(provider: AdditionalProvider, config
   if (provider === 'slack' && grant.grant_type === 'authorization_code' && !parsed.data.scope?.split(/[ ,]+/).includes('search:read')) throw problem('Allow Slack message search to connect this account.', 409);
   return parsed.data;
 }
-export type ConnectionEntry = { id: string; title: string; url?: string; date?: string | null; context?: string; captureText?: string };
+export type ConnectionEntry = { id: string; title: string; url?: string; date?: string | null; context?: string; captureText?: string; kind?: string };
 export type ConnectionEntries = { entries: ConnectionEntry[]; hasMore: boolean; notice?: string };
 export function safeLink(value: string | undefined, hostname: string) {
   try { const url = new URL(value ?? ''); return url.protocol === 'https:' && (url.hostname === hostname || url.hostname.endsWith(`.${hostname}`)) ? url.toString() : undefined; } catch { return undefined; }

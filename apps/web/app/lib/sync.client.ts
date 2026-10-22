@@ -1,26 +1,26 @@
 import { createAlignmentStore, type LocalAlignment } from './alignments.client';
-import type { AlignmentContent } from '@veylo/domain';
-import { chunkJsonPayload, initialOriginalVersions, mergeOriginalVersions, type OriginalVersion, type OriginalGist, type ThoughtEvaluation } from '@veylo/domain';
+import type { AlignmentContent } from '@clearhead/domain';
+import { chunkJsonPayload, initialOriginalVersions, mergeOriginalVersions, type OriginalVersion, type OriginalGist, type ThoughtEvaluation, type IntentionKind, type CustomField } from '@clearhead/domain';
 
 export type SyncBlock = {
   id: string; remoteId?: string; date: string; time: string; duration: number;
   startsAt?: string; endsAt?: string;
-  externalProvider?: string; externalEventId?: string; externalLink?: string; syncState?: string;
+  externalProvider?: string; externalEventId?: string; externalLink?: string; externalAccountLabel?: string | null; syncState?: string;
 };
 
 export type SyncIntention = {
   id: string; clientId?: string; remoteId?: string; rawCapture: string; raw?: string;
   title: string; kind: string; intent?: string | null; purpose?: string | null;
   desiredOutcome?: string | null; roughPlan?: string | null; horizon?: string | null;
-  effortEstimate?: number | null; energyContext?: string | null; status: string;
-  createdAt: string; updatedAt: string; version?: number | null; blocks?: SyncBlock[];
+  effortEstimate?: number | null; energyContext?: string | null; customFields?: CustomField[]; status: string;
+  createdAt: string; updatedAt: string; version?: number | null; blocks?: SyncBlock[]; trashedAt?: string | null;
   originalVersions?: OriginalVersion[]; originalGists?: Record<string, OriginalGist>;
   fieldEvaluation?: ThoughtEvaluation | null;
   aiInterpretation?: { confidence: number | null; rationale: string | null; model: string | null; processedAt: string; undoneAt: string | null; canUndo: boolean } | null;
   syncState?: 'pending' | 'synced'; [key: string]: unknown;
 };
 
-export type UserPreferences = { aiInterpretationEnabled: boolean; reduceMotion: boolean; suggestionsEnabled: boolean; suggestionLimit: number; quietStart: string | null; quietEnd: string | null; timezone: string | null };
+export type UserPreferences = { aiInterpretationEnabled: boolean; reduceMotion: boolean; suggestionsEnabled: boolean; suggestionLimit: number; quietStart: string | null; quietEnd: string | null; timezone: string | null; pinnedTimezones: string[] };
 export type IntentionRelationship = { id: string; fromClientId: string; fromTitle: string; toClientId: string; toTitle: string; relation: 'supports' | 'related' | 'depends_on' };
 export type SuggestionFeedback = { clientId: string; state: 'open' | 'accepted' | 'dismissed' | 'snoozed'; snoozedUntil: string | null };
 export type BrainstormMessage = { id: string; clientRequestId: string; parentMessageId: string | null; role: 'user' | 'assistant'; status: 'pending' | 'complete' | 'failed'; content: string; createdAt: string };
@@ -32,9 +32,17 @@ export type WebPushConfig = { publicKey: string | null; subscribed: boolean };
 export const oauthProviders = ['google', 'jira', 'notion', 'outlook', 'clickup', 'asana', 'trello', 'todoist', 'microsoft_todo', 'linear', 'github', 'slack'] as const;
 export type OAuthProvider = typeof oauthProviders[number];
 export type ConnectionProvider = OAuthProvider | 'icloud';
-export type ConnectionStatus = { provider: string; connected: boolean; siteName?: string | null; workspaceName?: string | null };
+// A provider can now have more than one connected account - each row here is one
+// account, not one provider, so id is what every disconnect/sync-now/push action targets.
+export type ConnectionStatus = {
+  id: string; provider: string; connected: boolean; accountLabel?: string | null; email?: string | null; siteName?: string | null; workspaceName?: string | null;
+  // User-set nickname/emoji for this specific account - purely cosmetic, overrides the
+  // provider-derived accountLabel and the auto-generated initials badge when present.
+  customLabel?: string | null; customIcon?: string | null;
+  scopes?: string[]; connectedAt?: string; lastSyncedAt?: string | null;
+};
 export type ConnectionCatalog = { provider: string; configured: boolean };
-export type ConnectionEntry = { id: string; title: string; url?: string; date?: string | null; context?: string; captureText?: string };
+export type ConnectionEntry = { id: string; title: string; url?: string; date?: string | null; context?: string; captureText?: string; kind?: IntentionKind };
 export type ConnectionEntries = { entries: ConnectionEntry[]; hasMore: boolean; notice?: string };
 export const connectionProviderId = (provider: ConnectionProvider) => provider === 'google' ? 'google_calendar' : provider === 'jira' ? 'jira_cloud' : provider;
 
@@ -47,29 +55,33 @@ type RelationshipOutboxSnapshot = { id: string; operations: RelationshipOperatio
 type SyncOptions = {
   apiUrl: string; userId: string; getSession: () => Promise<{ userId: string; accessToken: string } | null>; signOut: () => Promise<void>;
   onAlignments?: (items: LocalAlignment[]) => void;
-  onRemote: (items: SyncIntention[]) => void; onIntegrations: (items: Array<{ provider: string; connected: boolean; siteName?: string | null; workspaceName?: string | null }>) => void;
+  onRemote: (items: SyncIntention[]) => void; onIntegrations: (items: ConnectionStatus[]) => void;
   onRelationships: (items: IntentionRelationship[]) => void;
   onSuggestionFeedback: (items: SuggestionFeedback[]) => void;
   onPreferences: (value: UserPreferences) => void; onState: (label: string, error: boolean) => void; onToast: (message: string) => void;
+  onConflict?: (fork: { id: string; title: string }) => void;
 };
 
 export type SyncClient = {
   saveAlignment(input: AlignmentContent & { id?: string }, expectedVersion: number | null, replaceConflict?: boolean): void;
   useSyncedAlignment(id: string): void;
+  deleteAlignment(id: string): Promise<void>;
 
   connectionCatalog(): Promise<ConnectionCatalog[]>;
   refreshConnections(): Promise<ConnectionStatus[]>;
+  refreshIntentions(): Promise<void>;
   connectProvider(provider: OAuthProvider): Promise<void>;
-  disconnectProvider(provider: ConnectionProvider): Promise<{ revocationWarning?: string }>;
+  disconnectIntegration(integrationId: string): Promise<{ revocationWarning?: string }>;
+  updateIntegration(integrationId: string, patch: { customLabel?: string | null; customIcon?: string | null }): Promise<void>;
   connectIcloud(credentials: { appleId: string; appPassword: string }): Promise<void>;
   connectionEntries(provider: Exclude<ConnectionProvider, 'google' | 'jira' | 'notion'>): Promise<ConnectionEntries>;
   start(items: SyncIntention[]): Promise<void>; queue(items: SyncIntention[]): Promise<void>; flush(): Promise<void>;
   completeOAuth(provider: OAuthProvider, code: string, state: string): Promise<void>;
-  connectGoogle(): Promise<void>; disconnectGoogle(): Promise<{ revocationWarning?: string }>;
-  connectJira(): Promise<void>; disconnectJira(): Promise<void>; getJiraIssues(): Promise<{ siteName: string; issues: JiraIssue[] }>;
-  connectNotion(): Promise<void>; disconnectNotion(): Promise<{ revocationWarning?: string }>; getNotionPages(cursor?: string): Promise<NotionPageResult>;
+  getJiraIssues(): Promise<{ siteName: string; issues: JiraIssue[] }>;
+  getNotionPages(cursor?: string): Promise<NotionPageResult>;
   calendarAvailability(startsAt: string, endsAt: string, timezone: string): Promise<{ busy: Array<{ start: string; end: string }> }>;
-  createCalendarEvent(timeBlockId: string): Promise<{ externalEventId: string; externalUrl?: string; alreadyExists?: boolean }>;
+  syncCalendarNow(integrationId: string): Promise<{ queued: boolean }>;
+  createCalendarPushes(timeBlockId: string, integrationIds: string[], title?: string, description?: string): Promise<{ pushes: Array<{ integrationId: string; provider: string | null; status: 'synced' | 'error'; externalEventId?: string | null; externalUrl?: string | null; error?: string }> }>;
   setPreferences(value: UserPreferences): Promise<void>;
   getWebPushConfig(): Promise<WebPushConfig>; enableWebPush(subscription: { endpoint: string; expirationTime: number | null; keys: { p256dh: string; auth: string } }): Promise<void>;
   disableWebPush(endpoint: string): Promise<void>;
@@ -77,6 +89,7 @@ export type SyncClient = {
   deleteRelationship(id: string): Promise<void>;
   setSuggestionFeedback(clientId: string, state: SuggestionFeedback['state'], snoozedUntil?: string | null): Promise<void>;
   setAIInterpretation(enabled: boolean): Promise<unknown>; deleteEverything(): Promise<void>;
+  purgeIntention(remoteId: string): Promise<void>;
   getBrainstormMessages(intentionId: string): Promise<BrainstormMessage[]>;
   evaluateThought(intentionId: string): Promise<{ queued: boolean }>;
   getIntentionHistory(intentionId: string): Promise<IntentionHistoryEntry[]>;
@@ -122,12 +135,12 @@ export function createSyncClient(options: SyncOptions): SyncClient {
   const queuedPreferencesId = `preferences:${options.userId}`;
   const queuedFeedbackId = `suggestion-feedback:${options.userId}`;
   const queuedRelationshipsId = `relationships:${options.userId}`;
-  const dataKey = `veylo-intentions-v1:${options.userId}`;
-  const syncKey = `veylo-last-sync:${options.userId}`;
-  const preferencesKey = `veylo-preferences-v1:${options.userId}`;
-  const relationshipsKey = `veylo-relationships-v1:${options.userId}`;
-  const alignmentsKey = `veylo-alignments-v1:${options.userId}`;
-  const suggestionFeedbackKey = `veylo-suggestion-feedback-v1:${options.userId}`;
+  const dataKey = `clearhead-intentions-v1:${options.userId}`;
+  const syncKey = `clearhead-last-sync:${options.userId}`;
+  const preferencesKey = `clearhead-preferences-v1:${options.userId}`;
+  const relationshipsKey = `clearhead-relationships-v1:${options.userId}`;
+  const alignmentsKey = `clearhead-alignments-v1:${options.userId}`;
+  const suggestionFeedbackKey = `clearhead-suggestion-feedback-v1:${options.userId}`;
   const readLocalCache = (key: string): string | null => {
     try { return localStorage.getItem(key); } catch { return null; }
   };
@@ -143,13 +156,18 @@ export function createSyncClient(options: SyncOptions): SyncClient {
   let finishActiveFlush: (() => void) | null = null;
   let clearRequested = false;
   let snapshotRevision = 0;
+  // Collected during push(), only announced once onRemote has actually merged the fork
+  // into the caller's state - otherwise "Review" could open a detail view for an item
+  // that isn't in `items` yet.
+  let pendingConflictNotices: Array<{ id: string; title: string }> = [];
+  const archivedPieceWarnings = new Set<string>();
   let snapshotWrites: Promise<void> = Promise.resolve();
   let feedbackWrites: Promise<void> = Promise.resolve();
   let feedbackRevision = 0;
   let preferenceWrites: Promise<void> = Promise.resolve();
   let preferenceRevision = 0;
   let relationshipWrites: Promise<void> = Promise.resolve();
-  let integrationCache: Array<{ provider: string; connected: boolean; siteName?: string | null; workspaceName?: string | null }> = [];
+  let integrationCache: ConnectionStatus[] = [];
   let disposed = false;
   const activeRequests = new Set<AbortController>();
   let activeRequestWaiters: Array<() => void> = [];
@@ -335,13 +353,13 @@ export function createSyncClient(options: SyncOptions): SyncClient {
   }
 
   async function request<T>(path: string, init: RequestInit = {}, allowDuringDeletion = false): Promise<T> {
-    if (disposed) throw new Error('This Veylo session is no longer active.');
+    if (disposed) throw new Error('This ClearHead session is no longer active.');
     if (accountDeletionRequested && !allowDuringDeletion) throw new Error('Account deletion is in progress.');
     const session = await options.getSession();
-    if (disposed) throw new Error('This Veylo session is no longer active.');
+    if (disposed) throw new Error('This ClearHead session is no longer active.');
     if (accountDeletionRequested && !allowDuringDeletion) throw new Error('Account deletion is in progress.');
     if (!session) throw new Error('Sign in to sync. Your local save is safe.');
-    if (session.userId !== options.userId) throw new Error('The signed-in account changed. Refresh Veylo before syncing.');
+    if (session.userId !== options.userId) throw new Error('The signed-in account changed. Refresh ClearHead before syncing.');
     const controller = new AbortController();
     activeRequests.add(controller);
     const timeout = setTimeout(() => controller.abort(), 30_000);
@@ -360,7 +378,7 @@ export function createSyncClient(options: SyncOptions): SyncClient {
       if (response.status === 204) return undefined as T;
       return await response.json() as T;
     } catch (error) {
-      if (controller.signal.aborted && !init.signal?.aborted) throw new Error('Veylo server request timed out. Check your connection and try again.');
+      if (controller.signal.aborted && !init.signal?.aborted) throw new Error('ClearHead server request timed out. Check your connection and try again.');
       throw error;
     } finally {
       clearTimeout(timeout);
@@ -384,7 +402,7 @@ export function createSyncClient(options: SyncOptions): SyncClient {
   }
 
   async function refreshIntegrations(): Promise<void> {
-    const result = await request<{ integrations: Array<{ provider: string; connected: boolean; siteName?: string | null; workspaceName?: string | null }> }>('/integrations');
+    const result = await request<{ integrations: ConnectionStatus[] }>('/integrations');
     if (accountDeletionRequested || disposed) return;
     integrationCache = result.integrations ?? [];
     options.onIntegrations(integrationCache);
@@ -394,7 +412,7 @@ export function createSyncClient(options: SyncOptions): SyncClient {
     clientId: item.id, capturedAt: item.originalVersions?.[0]?.pieces[0]?.createdAt ?? item.createdAt, rawCapture: item.rawCapture || item.raw || item.title, title: item.title || 'A new thought', kind: item.kind || 'unclassified',
     intent: item.intent || null, purpose: item.purpose || null, desiredOutcome: item.desiredOutcome || null,
     roughPlan: item.roughPlan || null, horizon: item.horizon || null, effortEstimate: item.effortEstimate ?? null,
-    energyContext: item.energyContext || null, status: item.status || 'captured', expectedVersion: item.version ?? null,
+    energyContext: item.energyContext || null, customFields: item.customFields ?? [], status: item.status || 'captured', expectedVersion: item.version ?? null,
   });
 
   function fromRemote(row: Record<string, any>, current?: SyncIntention): SyncIntention {
@@ -404,10 +422,11 @@ export function createSyncClient(options: SyncOptions): SyncClient {
       originalGists: row.originalGists ?? {},
       rawCapture: row.rawCapture, raw: row.rawCapture, title: row.title, kind: row.kind,
       intent: row.intent, purpose: row.purpose, desiredOutcome: row.desiredOutcome, roughPlan: row.roughPlan,
-      horizon: row.horizon, effortEstimate: row.effortEstimate, energyContext: row.energyContext,
+      horizon: row.horizon, effortEstimate: row.effortEstimate, energyContext: row.energyContext, customFields: row.customFields ?? [],
       fieldEvaluation: row.fieldEvaluation ?? null,
       aiInterpretation: row.aiInterpretation ?? null,
       status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, version: row.version, syncState: 'synced',
+      trashedAt: row.trashedAt ?? null,
     };
   }
 
@@ -431,7 +450,7 @@ export function createSyncClient(options: SyncOptions): SyncClient {
         time: new Date(remoteBlock.startsAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
         duration: Math.max(1, Math.round((Date.parse(remoteBlock.endsAt) - Date.parse(remoteBlock.startsAt)) / 60000)),
         externalProvider: remoteBlock.externalProvider, externalEventId: remoteBlock.externalEventId,
-        externalLink: remoteBlock.externalUrl, syncState: remoteBlock.syncState,
+        externalLink: remoteBlock.externalUrl, externalAccountLabel: remoteBlock.externalAccountLabel ?? null, syncState: remoteBlock.syncState,
       };
       if (index < 0) parent.blocks.push(value); else parent.blocks[index] = value;
     }
@@ -470,7 +489,8 @@ export function createSyncClient(options: SyncOptions): SyncClient {
       fork.originalGists = {};
       fork.title = `${fork.title} (offline copy)`; fork.status = 'captured'; fork.blocks = []; fork.createdAt = new Date().toISOString(); fork.updatedAt = fork.createdAt; fork.syncState = 'pending';
       Object.assign(edited, fromRemote(conflict.current, edited)); payload.push(fork);
-      options.onToast('An offline edit conflicted with a newer version. Your edit is saved as an offline copy.');
+      if (options.onConflict) pendingConflictNotices.push({ id: fork.id, title: fork.title });
+      else options.onToast('An offline edit conflicted with a newer version. Your edit is saved as an offline copy.');
     }
 
     // Pieces have stable IDs and their own append endpoint. Retrying a saved
@@ -479,10 +499,24 @@ export function createSyncClient(options: SyncOptions): SyncClient {
       if (!item.remoteId) continue;
       for (const version of item.originalVersions ?? []) for (const piece of version.pieces) {
         if (piece.syncedAt) continue;
-        const result = await request<{ intention: Record<string, any> }>(`/intentions/${encodeURIComponent(item.remoteId)}/pieces`, {
-          method: 'POST', body: JSON.stringify({ id: piece.id, versionId: version.id, content: piece.content, createdAt: piece.createdAt, startNewVersion: true }),
-        });
-        Object.assign(item, fromRemote(result.intention, item));
+        try {
+          const result = await request<{ intention: Record<string, any> }>(`/intentions/${encodeURIComponent(item.remoteId)}/pieces`, {
+            method: 'POST', body: JSON.stringify({ id: piece.id, versionId: version.id, content: piece.content, createdAt: piece.createdAt, startNewVersion: true }),
+          });
+          Object.assign(item, fromRemote(result.intention, item));
+        } catch (error) {
+          // An archived/trashed thought rejects new pieces until restored. Leaving this
+          // unsynced would otherwise abort every future flush, so skip it instead of
+          // blocking unrelated syncing (preferences, relationships, alignments, ...).
+          if ((error as { statusCode?: number }).statusCode === 409 && error instanceof Error && error.message === 'Restore this thought before adding a piece.') {
+            if (!archivedPieceWarnings.has(item.remoteId)) {
+              archivedPieceWarnings.add(item.remoteId);
+              options.onToast(`"${item.title}" is archived, so its latest edit is waiting here until you restore it.`);
+            }
+            continue;
+          }
+          throw error;
+        }
       }
     }
 
@@ -650,6 +684,7 @@ export function createSyncClient(options: SyncOptions): SyncClient {
         options.onRemote([]); getAlignmentStore().clearThoughtLinks(); clearRequested = false;
       } else if (queued) {
         const uploaded = await push(queued.items ?? [], queued.deletedBlocks ?? []);
+        const conflictNotices = pendingConflictNotices; pendingConflictNotices = [];
         const pulled = await pull(uploaded);
         const merged = pulled.items;
         if (revisionAtStart !== snapshotRevision) {
@@ -678,6 +713,9 @@ export function createSyncClient(options: SyncOptions): SyncClient {
             options.onRemote(merged);
           });
         }
+        // Fire only once the snapshot/onRemote above has actually run, so the fork this
+        // refers to is guaranteed present in the caller's state before "Review" can be clicked.
+        for (const notice of conflictNotices) options.onConflict?.(notice);
       }
       await syncQueuedPreferences();
       await syncQueuedSuggestionFeedback();
@@ -692,7 +730,7 @@ export function createSyncClient(options: SyncOptions): SyncClient {
     } catch (error) {
       failed = true;
       options.onState(navigator.onLine ? 'Saved here. Sync will retry.' : 'Saved offline. Sync will resume when connected.', true);
-      console.warn('Veylo sync deferred:', error);
+      console.warn('ClearHead sync deferred:', error);
       scheduleRetry();
     } finally {
       flushing = false;
@@ -792,63 +830,76 @@ export function createSyncClient(options: SyncOptions): SyncClient {
       void flush();
     },
     useSyncedAlignment(id) { getAlignmentStore().useSynced(id); },
+    async deleteAlignment(id) {
+      if (clearRequested || accountDeletionRequested || disposed) throw new Error('This session is closing.');
+      await getAlignmentStore().delete(id);
+    },
     async connectionCatalog() { return (await request<{ providers: ConnectionCatalog[] }>('/integrations/catalog')).providers; },
     async refreshConnections() { await refreshIntegrations(); return integrationCache; },
+    // A plain pull, with no local push - used to pick up server-side changes (e.g. a
+    // background calendar sync importing a new event as its own card) that flush() would
+    // otherwise skip entirely when there's nothing queued locally to push.
+    async refreshIntentions() {
+      if (accountDeletionRequested || disposed) return;
+      if (flushing) { await flushIdle; return; }
+      const queued = await getSnapshot();
+      if (queued?.clearAll) return;
+      const pulled = await pull(queued?.items ?? []);
+      await scheduleSnapshotWrite(async () => {
+        const latest = await getSnapshot();
+        if (latest?.clearAll) return;
+        const current = new Map(pulled.items.map((item) => [item.id, item]));
+        for (const item of latest?.items ?? []) if (item.syncState === 'pending') current.set(item.id, item);
+        const merged = [...current.values()].sort((a, b) => (b.updatedAt || b.createdAt).localeCompare(a.updatedAt || a.createdAt));
+        await putSnapshot(merged, false, latest?.deletedBlocks ?? []);
+        writeLocalCache(dataKey, JSON.stringify(merged));
+        writeLocalCache(syncKey, pulled.serverTime);
+        options.onRemote(merged);
+      });
+    },
     async connectProvider(provider) {
       const result = await request<{ authorizationUrl: string }>(`/integrations/${provider}/connect`, { method: 'POST', body: '{}' });
       window.location.assign(result.authorizationUrl);
     },
     async connectIcloud(credentials) {
       await request('/integrations/icloud/connect', { method: 'POST', body: JSON.stringify(credentials) });
-      integrationCache = [...integrationCache.filter((item) => item.provider !== 'icloud'), { provider: 'icloud', connected: true }];
+      integrationCache = [...integrationCache.filter((item) => item.provider !== 'icloud'), { id: `pending-icloud-${Date.now()}`, provider: 'icloud', connected: true }];
       options.onIntegrations(integrationCache);
       await refreshIntegrations().catch(() => undefined);
     },
-    async disconnectProvider(provider) {
-      const result = await request<{ revocationWarning?: string } | undefined>(`/integrations/${provider}`, { method: 'DELETE' });
-      integrationCache = integrationCache.filter((item) => item.provider !== connectionProviderId(provider));
+    async disconnectIntegration(integrationId) {
+      const result = await request<{ revocationWarning?: string } | undefined>(`/integrations/${integrationId}`, { method: 'DELETE' });
+      integrationCache = integrationCache.filter((item) => item.id !== integrationId);
       options.onIntegrations(integrationCache);
       await refreshIntegrations().catch(() => undefined);
       return result ?? {};
+    },
+    async updateIntegration(integrationId, patch) {
+      await request(`/integrations/${integrationId}`, { method: 'PATCH', body: JSON.stringify(patch) });
+      integrationCache = integrationCache.map((item) => item.id === integrationId ? { ...item, ...patch } : item);
+      options.onIntegrations(integrationCache);
+      await refreshIntegrations().catch(() => undefined);
     },
     connectionEntries(provider) { return request<ConnectionEntries>(`/integrations/${provider}/entries`); },
     async completeOAuth(provider, code, state) {
       await request(`/integrations/${provider}/complete`, { method: 'POST', body: JSON.stringify({ code, state }) });
       const providerId = connectionProviderId(provider);
       integrationCache = [
-        ...integrationCache.filter((item) => item.provider !== providerId),
-        { provider: providerId, connected: true },
+        ...integrationCache,
+        { id: `pending-${providerId}-${Date.now()}`, provider: providerId, connected: true },
       ];
       options.onIntegrations(integrationCache);
       await refreshIntegrations().catch(() => undefined);
     },
-    async connectGoogle() { const result = await request<{ authorizationUrl: string }>('/integrations/google/connect', { method: 'POST', body: '{}' }); window.location.assign(result.authorizationUrl); },
-    async disconnectGoogle() {
-      const result = await request<{ revocationWarning?: string }>('/integrations/google', { method: 'DELETE' });
-      integrationCache = integrationCache.filter((item) => item.provider !== 'google_calendar');
-      options.onIntegrations(integrationCache);
-      await refreshIntegrations().catch(() => undefined);
-      return result;
-    },
-    async connectJira() { const result = await request<{ authorizationUrl: string }>('/integrations/jira/connect', { method: 'POST', body: '{}' }); window.location.assign(result.authorizationUrl); },
-    async disconnectJira() {
-      await request('/integrations/jira', { method: 'DELETE' });
-      integrationCache = integrationCache.filter((item) => item.provider !== 'jira_cloud');
-      options.onIntegrations(integrationCache);
-      await refreshIntegrations().catch(() => undefined);
-    },
     getJiraIssues() { return request<{ siteName: string; issues: JiraIssue[] }>('/integrations/jira/issues'); },
-    async connectNotion() { const result = await request<{ authorizationUrl: string }>('/integrations/notion/connect', { method: 'POST', body: '{}' }); window.location.assign(result.authorizationUrl); },
-    async disconnectNotion() {
-      const result = await request<{ revocationWarning?: string }>('/integrations/notion', { method: 'DELETE' });
-      integrationCache = integrationCache.filter((item) => item.provider !== 'notion');
-      options.onIntegrations(integrationCache);
-      await refreshIntegrations().catch(() => undefined);
-      return result;
-    },
     getNotionPages(cursor?: string) { return request<NotionPageResult>(`/integrations/notion/pages${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`); },
     calendarAvailability(startsAt, endsAt, timezone) { return request<{ busy: Array<{ start: string; end: string }> }>('/integrations/google/availability', { method: 'POST', body: JSON.stringify({ startsAt, endsAt, timezone }) }); },
-    createCalendarEvent(timeBlockId) { return request<{ externalEventId: string; externalUrl?: string; alreadyExists?: boolean }>('/integrations/google/events', { method: 'POST', body: JSON.stringify({ timeBlockId }) }); },
+    syncCalendarNow(integrationId) { return request<{ queued: boolean }>(`/integrations/${integrationId}/sync-now`, { method: 'POST', body: '{}' }); },
+    createCalendarPushes(timeBlockId, integrationIds, title, description) {
+      return request<{ pushes: Array<{ integrationId: string; provider: string | null; status: 'synced' | 'error'; externalEventId?: string | null; externalUrl?: string | null; error?: string }> }>(
+        '/calendar-pushes', { method: 'POST', body: JSON.stringify({ timeBlockId, integrationIds, title, description }) },
+      );
+    },
     async setPreferences(preferences) {
       if (accountDeletionRequested) throw new Error('Account deletion is in progress.');
       writeLocalCache(preferencesKey, JSON.stringify(preferences));
@@ -914,6 +965,9 @@ export function createSyncClient(options: SyncOptions): SyncClient {
       return result.messages;
     },
     evaluateThought(intentionId) { return request(`/intentions/${encodeURIComponent(intentionId)}/evaluate`, { method: 'POST' }); },
+    // Delete Forever from the Trash view - a deliberate, immediate, irreversible call, not
+    // a queued offline edit (there is nothing to retry or reconcile once this succeeds).
+    async purgeIntention(remoteId) { await request(`/intentions/${encodeURIComponent(remoteId)}`, { method: 'DELETE' }); },
     async getIntentionHistory(intentionId) {
       const result = await request<{ history: IntentionHistoryEntry[] }>(`/intentions/${encodeURIComponent(intentionId)}/history`);
       return result.history;

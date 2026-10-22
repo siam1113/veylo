@@ -4,10 +4,22 @@ export const intentionKinds = [
   'idea', 'action', 'commitment', 'question', 'goal', 'meeting', 'note', 'unclassified',
 ] as const;
 export const intentionStatuses = [
-  'captured', 'exploring', 'ready', 'planned', 'active', 'completed', 'archived',
+  'captured', 'exploring', 'ready', 'planned', 'active', 'completed', 'archived', 'trashed',
 ] as const;
 export const intentionHorizons = ['today', 'week', 'month', 'someday', 'custom'] as const;
 export const rawCaptureMaxLength = 8000;
+
+// User-defined fields, distinct from the fixed thoughtFieldKeys below: any label
+// the person chooses, not one of the AI-evaluation's fixed keys.
+export const customFieldSchema = z.object({
+  key: z.string().min(1).max(64),
+  label: z.string().trim().min(1).max(60),
+  // Stored as sanitized rich-text HTML (like intent/purpose), so the cap leaves
+  // headroom over the plain-text length the editor itself enforces (4000).
+  value: z.string().max(6000),
+}).strict();
+export const customFieldsSchema = z.array(customFieldSchema).max(10);
+export type CustomField = z.infer<typeof customFieldSchema>;
 
 export const intentionSchema = z.object({
   id: z.string().uuid(),
@@ -21,6 +33,7 @@ export const intentionSchema = z.object({
   horizon: z.enum(intentionHorizons).nullable().default(null),
   effortEstimate: z.number().int().min(0).max(10080).nullable().default(null),
   energyContext: z.string().max(120).nullable().default(null),
+  customFields: customFieldsSchema.default([]),
   status: z.enum(intentionStatuses).default('captured'),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
@@ -85,6 +98,7 @@ export const intentionPatchSchema = z.object({
   horizon: z.enum(intentionHorizons).nullable().optional(),
   effortEstimate: z.number().int().min(0).max(10080).nullable().optional(),
   energyContext: z.string().max(120).nullable().optional(),
+  customFields: customFieldsSchema.optional(),
   status: z.enum(intentionStatuses).optional(),
   expectedVersion: z.number().int().positive(),
 });
@@ -224,7 +238,7 @@ export function rankIntentionSuggestions<T extends {
   const feedbackById = new Map(feedback.map((item) => [item.clientId, item]));
   const horizonScores: Record<string, number> = { today: 1, week: 0.82, month: 0.62, custom: 0.58, someday: 0.24 };
   const ranked = items.flatMap((item) => {
-    if (item.status === 'completed' || item.status === 'archived') return [];
+    if (item.status === 'completed' || item.status === 'archived' || item.status === 'trashed') return [];
     if (item.blocks?.some((block) => block.startsAt
       ? Date.parse(block.startsAt) >= now.getTime()
       : Boolean(block.date && block.date >= today))) return [];

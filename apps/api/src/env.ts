@@ -72,7 +72,7 @@ if (!parsedEnv.success) {
     .map(({ path, message }) => `  - ${path.join('.') || 'environment'}: ${message}`)
     .join('\n');
   throw new Error(
-    `Veylo API environment is incomplete or invalid:\n${issues}\n`
+    `ClearHead API environment is incomplete or invalid:\n${issues}\n`
     + 'For local setup, configure these values in the repository root .env '
     + '(copy .env.example first if needed).',
   );

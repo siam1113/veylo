@@ -8,7 +8,7 @@ const user = {
   id: userId,
   aud: 'authenticated',
   role: 'authenticated',
-  email: 'playwright@veylo.test',
+  email: 'playwright@clearhead.test',
   app_metadata: { provider: 'email', providers: ['email'] },
   user_metadata: {},
   created_at: '2026-01-01T00:00:00.000Z',
@@ -30,7 +30,7 @@ const server = createServer(async (request, response) => {
   if (request.url === '/health') { response.writeHead(200).end('ok'); return; }
 
   if (request.method === 'GET' && request.url?.startsWith('/auth/v1/user')) {
-    if (request.headers.authorization !== 'Bearer veylo-playwright-user-token') {
+    if (request.headers.authorization !== 'Bearer clearhead-playwright-user-token') {
       response.writeHead(401, { 'Content-Type': 'application/json' }).end(JSON.stringify({ message: 'Invalid test token' }));
       return;
     }

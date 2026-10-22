@@ -4,7 +4,7 @@ import postgres from 'postgres';
 
 const userId = '3078190f-ff7b-44ed-bf0e-739ef0219372';
 const authStorageKey = 'sb-127-auth-token';
-const token = 'veylo-playwright-user-token';
+const token = 'clearhead-playwright-user-token';
 const rawCapture = 'Maybe I should call Maya about the garden idea on Friday.';
 const title = 'Call Maya about the garden idea on Friday';
 const offlineCapture = 'Maybe I should plan a quiet Sunday dinner.';
@@ -13,13 +13,13 @@ const quotaCapture = 'Maybe I should make room for a weekly walk.';
 const quotaTitle = 'Make room for a weekly walk';
 
 test.afterAll(async () => {
-  const database = postgres(process.env.DATABASE_URL ?? 'postgresql://veylo:veylo@127.0.0.1:5432/veylo', { max: 1, prepare: false });
+  const database = postgres(process.env.DATABASE_URL ?? 'postgresql://clearhead:clearhead@127.0.0.1:5432/clearhead', { max: 1, prepare: false });
   try { await database`DELETE FROM auth.users WHERE id = ${userId}`; }
   finally { await database.end({ timeout: 5 }); }
 });
 
 test('signed-in web capture syncs to PostgreSQL and returns in a clean browser context', async ({ page, browser }) => {
-  const database = postgres(process.env.DATABASE_URL ?? 'postgresql://veylo:veylo@127.0.0.1:5432/veylo', { max: 1, prepare: false });
+  const database = postgres(process.env.DATABASE_URL ?? 'postgresql://clearhead:clearhead@127.0.0.1:5432/clearhead', { max: 1, prepare: false });
   try {
   await database`DELETE FROM auth.users WHERE id = ${userId}`;
   await page.addInitScript(({ userId, authStorageKey, token }) => {
@@ -29,12 +29,12 @@ test('signed-in web capture syncs to PostgreSQL and returns in a clean browser c
       token_type: 'bearer',
       expires_in: 3600,
       expires_at: now + 3600,
-      refresh_token: 'veylo-playwright-refresh-token',
+      refresh_token: 'clearhead-playwright-refresh-token',
       user: {
         id: userId,
         aud: 'authenticated',
         role: 'authenticated',
-        email: 'playwright@veylo.test',
+        email: 'playwright@clearhead.test',
         app_metadata: { provider: 'email', providers: ['email'] },
         user_metadata: {},
         created_at: '2026-01-01T00:00:00.000Z',
@@ -42,14 +42,14 @@ test('signed-in web capture syncs to PostgreSQL and returns in a clean browser c
         is_anonymous: false,
       },
     }));
-    localStorage.setItem(`veylo-onboarding-v1:${userId}`, 'complete');
+    localStorage.setItem(`clearhead-onboarding-v1:${userId}`, 'complete');
   }, { userId, authStorageKey, token });
 
   await page.goto('/');
   const capture = page.getByLabel('A thought, a question, a maybe…');
   await expect(capture).toBeVisible();
   await capture.fill(rawCapture);
-  await page.getByRole('button', { name: /Keep this thought/ }).click();
+  await page.getByRole('button', { name: /Dump it/ }).click();
   await expect(page.getByText(title, { exact: true })).toBeVisible();
   await expect.poll(async () => {
     const rows = await database`SELECT raw_capture FROM intentions WHERE owner_id = ${userId} AND deleted_at IS NULL`;
@@ -58,7 +58,7 @@ test('signed-in web capture syncs to PostgreSQL and returns in a clean browser c
 
   await page.context().setOffline(true);
   await capture.fill(offlineCapture);
-  await page.getByRole('button', { name: /Keep this thought/ }).click();
+  await page.getByRole('button', { name: /Dump it/ }).click();
   await expect(page.getByText(offlineTitle, { exact: true })).toBeVisible();
   await expect.poll(() => page.evaluate(({ userId, offlineCapture }) => new Promise<boolean>((resolve) => {
     const request = indexedDB.open('veylo-offline-v1', 1);
@@ -88,12 +88,12 @@ test('signed-in web capture syncs to PostgreSQL and returns in a clean browser c
       const now = Math.floor(Date.now() / 1000);
       localStorage.setItem(authStorageKey, JSON.stringify({
         access_token: token, token_type: 'bearer', expires_in: 3600, expires_at: now + 3600,
-        refresh_token: 'veylo-playwright-refresh-token',
-        user: { id: userId, aud: 'authenticated', role: 'authenticated', email: 'playwright@veylo.test',
+        refresh_token: 'clearhead-playwright-refresh-token',
+        user: { id: userId, aud: 'authenticated', role: 'authenticated', email: 'playwright@clearhead.test',
           app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {},
           created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', is_anonymous: false },
       }));
-      localStorage.setItem(`veylo-onboarding-v1:${userId}`, 'complete');
+      localStorage.setItem(`clearhead-onboarding-v1:${userId}`, 'complete');
     }, { userId, authStorageKey, token });
 
     const cleanPage = await secondContext.newPage();
@@ -118,22 +118,22 @@ test('signed-in web capture syncs to PostgreSQL and returns in a clean browser c
 });
 
 test('capture remains durable when the localStorage intention cache is full', async ({ page }) => {
-  const database = postgres(process.env.DATABASE_URL ?? 'postgresql://veylo:veylo@127.0.0.1:5432/veylo', { max: 1, prepare: false });
+  const database = postgres(process.env.DATABASE_URL ?? 'postgresql://clearhead:clearhead@127.0.0.1:5432/clearhead', { max: 1, prepare: false });
   try {
     await database`DELETE FROM auth.users WHERE id = ${userId}`;
     await page.addInitScript(({ userId, authStorageKey, token }) => {
       const now = Math.floor(Date.now() / 1000);
       localStorage.setItem(authStorageKey, JSON.stringify({
         access_token: token, token_type: 'bearer', expires_in: 3600, expires_at: now + 3600,
-        refresh_token: 'veylo-playwright-refresh-token',
-        user: { id: userId, aud: 'authenticated', role: 'authenticated', email: 'playwright@veylo.test',
+        refresh_token: 'clearhead-playwright-refresh-token',
+        user: { id: userId, aud: 'authenticated', role: 'authenticated', email: 'playwright@clearhead.test',
           app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {},
           created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', is_anonymous: false },
       }));
-      localStorage.setItem(`veylo-onboarding-v1:${userId}`, 'complete');
+      localStorage.setItem(`clearhead-onboarding-v1:${userId}`, 'complete');
       const originalSetItem = Storage.prototype.setItem;
       Storage.prototype.setItem = function (key, value) {
-        if (key === `veylo-intentions-v1:${userId}`) throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
+        if (key === `clearhead-intentions-v1:${userId}`) throw new DOMException('Storage quota exceeded', 'QuotaExceededError');
         return originalSetItem.call(this, key, value);
       };
       const factory = IDBFactory.prototype;
@@ -171,7 +171,7 @@ test('capture remains durable when the localStorage intention cache is full', as
     await page.waitForFunction(() => (window as any).__veyloOfflineDbOpening === true);
     await page.context().setOffline(true);
     await capture.fill(quotaCapture);
-    await page.getByRole('button', { name: /Keep this thought/ }).click();
+    await page.getByRole('button', { name: /Dump it/ }).click();
     await expect(page.getByText(quotaTitle, { exact: true })).toBeVisible();
     await expect.poll(() => page.evaluate(({ userId, quotaCapture }) => new Promise<boolean>((resolve) => {
       const request = indexedDB.open('veylo-offline-v1', 1);

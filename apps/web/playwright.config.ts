@@ -2,7 +2,7 @@ import { defineConfig } from '@playwright/test';
 
 const baseURL = 'http://127.0.0.1:5173';
 const supabaseURL = 'http://127.0.0.1:54321';
-const databaseURL = process.env.DATABASE_URL ?? 'postgresql://veylo:veylo@127.0.0.1:5432/veylo';
+const databaseURL = process.env.DATABASE_URL ?? 'postgresql://clearhead:clearhead@127.0.0.1:5432/clearhead';
 const serverEnv = { ...process.env, NODE_ENV: 'test', DATABASE_URL: databaseURL };
 
 export default defineConfig({
@@ -22,7 +22,7 @@ export default defineConfig({
       timeout: 30_000,
     },
     {
-      command: 'npm run dev -w @veylo/api',
+      command: 'npm run dev -w @clearhead/api',
       url: 'http://127.0.0.1:4100/health',
       name: 'Fastify API',
       env: {
@@ -34,7 +34,7 @@ export default defineConfig({
       timeout: 60_000,
     },
     {
-      command: 'npm run dev -w @veylo/web -- --host 127.0.0.1 --port 5173',
+      command: 'npm run dev -w @clearhead/web -- --host 127.0.0.1 --port 5173',
       url: baseURL,
       name: 'React Router web app',
       env: {

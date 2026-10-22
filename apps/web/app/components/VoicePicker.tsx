@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { voiceAgentVoices, type VoiceAgentVoice } from '@veylo/domain';
+import { voiceAgentVoices, type VoiceAgentVoice } from '@clearhead/domain';
 import { createVoiceSession, type VoiceSession } from '../lib/voice-session.client';
 import { UiIcon } from './UiIcon';
 

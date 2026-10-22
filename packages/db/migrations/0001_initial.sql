@@ -1,4 +1,4 @@
--- Veylo initial schema. Apply after creating a Supabase project.
+-- ClearHead initial schema. Apply after creating a Supabase project.
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS intentions (

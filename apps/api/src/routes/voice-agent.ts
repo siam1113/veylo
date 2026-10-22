@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { voiceAgentDefaultName, voiceAgentSessionRequestSchema, voiceAgentToneInstructions, voiceToolDefinitions } from '@veylo/domain';
+import { voiceAgentDefaultName, voiceAgentSessionRequestSchema, voiceAgentToneInstructions, voiceToolDefinitions } from '@clearhead/domain';
 import { requireOwner } from '../auth.js';
 import { env } from '../env.js';
 
@@ -12,11 +12,11 @@ function openAiFetch(url: string, init: RequestInit = {}) {
   return fetch(url, { ...init, signal });
 }
 
-const buildInstructions = (name: string, tone: keyof typeof voiceAgentToneInstructions) => `You are ${name}, the voice assistant inside Veylo — a calm, private space for capturing and shaping intentions.
+const buildInstructions = (name: string, tone: keyof typeof voiceAgentToneInstructions) => `You are ${name}, the voice assistant inside ClearHead — a calm, private space for capturing and shaping intentions.
 
 ${voiceAgentToneInstructions[tone]} Never read back long lists aloud; summarize counts instead ("you have four things in Explore") and let the user ask for detail.
 
-Focus: help the user capture, organize, schedule, and connect their intentions, and move them to the right part of the app when that's more useful than describing it. Stay inside Veylo's domain — you are not a general-purpose assistant.
+Focus: help the user capture, organize, schedule, and connect their intentions, and move them to the right part of the app when that's more useful than describing it. Stay inside ClearHead's domain — you are not a general-purpose assistant.
 
 When a capture is vague, ask one short clarifying question instead of guessing. Narrate briefly before acting ("Adding that now...") so the user isn't surprised.
 

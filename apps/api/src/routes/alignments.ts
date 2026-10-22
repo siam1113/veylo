@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
+import { z } from 'zod';
 import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
-import { alignmentWriteSchema, type AlignmentRecord } from '@veylo/domain';
-import { db } from '@veylo/db/client';
-import { alignmentAnchors, intentions } from '@veylo/db/schema';
+import { alignmentWriteSchema, type AlignmentRecord } from '@clearhead/domain';
+import { db } from '@clearhead/db/client';
+import { alignmentAnchors, intentions } from '@clearhead/db/schema';
 import { requireOwner } from '../auth.js';
 
 const shape = (row: typeof alignmentAnchors.$inferSelect): AlignmentRecord => ({
@@ -46,5 +47,15 @@ export const alignmentRoutes: FastifyPluginAsync = async (app) => {
     });
     if ('conflict' in result) return reply.code(409).send({ message: 'This entry changed on another device. Review both versions before saving.', current: result.current });
     return result;
+  });
+  app.delete('/alignments/:id', async (request, reply) => {
+    const ownerId = requireOwner(request);
+    const { id } = request.params as { id: string };
+    if (!z.string().uuid().safeParse(id).success) throw bad('Provide a valid Align entry ID');
+    const [removed] = await db.delete(alignmentAnchors).where(and(
+      eq(alignmentAnchors.id, id), eq(alignmentAnchors.ownerId, ownerId),
+    )).returning({ id: alignmentAnchors.id });
+    if (!removed) return reply.code(404).send({ error: 'not_found' });
+    return reply.code(204).send();
   });
 };

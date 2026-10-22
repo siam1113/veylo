@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { initialOriginalVersions } from '@veylo/domain';
+import { initialOriginalVersions } from '@clearhead/domain';
 import { thoughtTimeline } from '../app/lib/thought-timeline';
 import type { SyncIntention } from '../app/lib/sync.client';
 const time = '2026-10-10T08:00:00.000Z';

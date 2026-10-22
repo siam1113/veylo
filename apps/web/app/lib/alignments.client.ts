@@ -1,4 +1,4 @@
-import { alignmentContentSchema, alignmentRecordSchema, alignmentWriteSchema, type AlignmentContent, type AlignmentRecord } from '@veylo/domain';
+import { alignmentContentSchema, alignmentRecordSchema, alignmentWriteSchema, type AlignmentContent, type AlignmentRecord } from '@clearhead/domain';
 
 export type LocalAlignment = Omit<AlignmentRecord, 'version'> & {
   version: number | null; syncState: 'pending' | 'synced' | 'conflict'; mutationId?: string;
@@ -72,6 +72,16 @@ export function createAlignmentStore(options: {
     },
     clearThoughtLinks() {
       commit(rows.map((row) => ({ ...row, intentionIds: [], conflict: row.conflict ? { ...row.conflict, intentionIds: [] } : undefined })));
+    },
+    // Optimistic, like the other mutations here: removed from the local view immediately,
+    // with the server call following. A row with version === null never synced, so there is
+    // nothing on the server to delete.
+    async delete(id: string) {
+      if (options.isClosed()) return;
+      const entry = rows.find((row) => row.id === id);
+      if (!entry) return;
+      commit(rows.filter((row) => row.id !== id));
+      if (entry.version !== null) await options.request(`/alignments/${encodeURIComponent(id)}`, { method: 'DELETE' });
     },
   };
 }

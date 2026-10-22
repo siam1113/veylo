@@ -1,17 +1,24 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { createCipheriv, createHash, randomBytes } from 'node:crypto';
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, notInArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { db } from '@veylo/db/client';
-import { alignmentAnchors, brainstormMessages, intentions, intentionRevisions, intentionRelationships, timeBlocks, suggestions, integrations, pushDevices, pushPreferences, webPushSubscriptions } from '@veylo/db/schema';
-import { appendOriginalPiece, initialOriginalVersions, originalPieceInputSchema, originalGistsSchema, thoughtEvaluationSchema, captureInputSchema, intentionHorizons, intentionPatchSchema, rawCaptureMaxLength, timeBlockInputSchema, timeZoneSchema } from '@veylo/domain';
+import { db } from '@clearhead/db/client';
+import { alignmentAnchors, brainstormMessages, calendarPushes, intentions, intentionRevisions, intentionRelationships, timeBlocks, suggestions, integrations, pushDevices, pushPreferences, webPushSubscriptions } from '@clearhead/db/schema';
+import { appendOriginalPiece, initialOriginalVersions, originalPieceInputSchema, originalGistsSchema, thoughtEvaluationSchema, captureInputSchema, customFieldsSchema, intentionHorizons, intentionPatchSchema, rawCaptureMaxLength, timeBlockInputSchema, timeZoneSchema } from '@clearhead/domain';
 import { requireOwner } from '../auth.js';
 import { shapeAccountExportConnection } from '../account-export.js';
 import { enqueueBrainstormReply, enqueueInterpretation, enqueueSnoozeReminder, enqueueSnoozeReminderCheck } from '../jobs/queue.js';
 import { env } from '../env.js';
 import { getAIInterpretationUndo, matchesAIOnlyChange } from '../ai-interpretation.js';
+import { retractCalendarEventsForIntention } from './calendar-pushes.js';
+
+// A thought's content/schedule is only safe to touch while it's live - neither archived
+// (reversible park) nor trashed (reversible delete) should be editable, scheduled, related,
+// or AI-evaluated. Both are excluded together everywhere a thought's "is this live" state matters.
+const HIDDEN_STATUSES: string[] = ['archived', 'trashed'];
 
 const iso = (value: Date | null) => value?.toISOString() ?? null;
+const sameCustomFields = (current: unknown, next: unknown) => JSON.stringify(current ?? []) === JSON.stringify(next ?? []);
 const shapeIntention = (row: typeof intentions.$inferSelect) => {
   const metadata = row.aiMetadata as Record<string, unknown>;
   const processedAt = typeof metadata.processedAt === 'string' ? metadata.processedAt : null;
@@ -21,7 +28,7 @@ const shapeIntention = (row: typeof intentions.$inferSelect) => {
     originalGists: originalGistsSchema.safeParse(metadata.originalGists).data ?? {}, title: row.title, kind: row.kind,
     intent: row.intent, purpose: row.purpose, desiredOutcome: row.desiredOutcome,
     roughPlan: row.roughPlan, horizon: row.horizon, effortEstimate: row.effortEstimate,
-    energyContext: row.energyContext, status: row.status,
+    energyContext: row.energyContext, customFields: row.customFields, status: row.status,
     fieldEvaluation: thoughtEvaluationSchema.safeParse(metadata.fieldEvaluation).data ?? null,
     aiInterpretation: processedAt ? {
       confidence: typeof metadata.confidence === 'number' ? metadata.confidence : null,
@@ -31,6 +38,7 @@ const shapeIntention = (row: typeof intentions.$inferSelect) => {
       canUndo: getAIInterpretationUndo(metadata, { title: row.title, kind: row.kind, horizon: row.horizon }) !== null,
     } : null,
     createdAt: row.createdAt.toISOString(), updatedAt: row.updatedAt.toISOString(), version: row.version,
+    trashedAt: iso(row.trashedAt),
   };
 };
 const titleFrom = (raw: string) => {
@@ -79,7 +87,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
     const [links, ownedIntentions] = await Promise.all([
       db.select().from(intentionRelationships).where(eq(intentionRelationships.ownerId, ownerId)),
       db.select({ id: intentions.id, clientId: intentions.clientId, title: intentions.title }).from(intentions)
-        .where(and(eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt), ne(intentions.status, 'archived'))),
+        .where(and(eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt), notInArray(intentions.status, HIDDEN_STATUSES))),
     ]);
     const byId = new Map(ownedIntentions.map((row) => [row.id, row]));
     return { relationships: links.flatMap((link) => {
@@ -99,7 +107,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
     const result = await db.transaction(async (tx) => {
       const owned = await tx.select({ id: intentions.id, clientId: intentions.clientId, title: intentions.title }).from(intentions).where(and(
         eq(intentions.ownerId, ownerId), inArray(intentions.clientId, [parsed.data.fromClientId, parsed.data.toClientId]),
-        isNull(intentions.deletedAt), ne(intentions.status, 'archived'),
+        isNull(intentions.deletedAt), notInArray(intentions.status, HIDDEN_STATUSES),
       )).orderBy(asc(intentions.id)).for('update');
       const from = owned.find((item) => item.clientId === parsed.data.fromClientId);
       const to = owned.find((item) => item.clientId === parsed.data.toClientId);
@@ -165,6 +173,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       quietStart: row?.quietStart ?? null,
       quietEnd: row?.quietEnd ?? null,
       timezone: row?.timezone ?? null,
+      pinnedTimezones: row?.pinnedTimezones ?? [],
     };
   });
 
@@ -177,6 +186,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       quietStart: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
       quietEnd: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/).nullable().optional(),
       timezone: timeZoneSchema.nullable().optional(),
+      pinnedTimezones: z.array(timeZoneSchema).max(3).optional(),
     }).refine((value) => Object.keys(value).length > 0, { message: 'Choose at least one preference to update.' }).safeParse(request.body);
     if (!parsed.success) throw bad(parsed.error.issues[0]?.message ?? 'Choose valid preferences.');
     const [current] = await db.select().from(pushPreferences).where(eq(pushPreferences.ownerId, ownerId)).limit(1);
@@ -189,6 +199,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       quietStart: parsed.data.quietStart !== undefined ? parsed.data.quietStart : current?.quietStart ?? null,
       quietEnd: parsed.data.quietEnd !== undefined ? parsed.data.quietEnd : current?.quietEnd ?? null,
       timezone: parsed.data.timezone !== undefined ? parsed.data.timezone : current?.timezone ?? null,
+      pinnedTimezones: parsed.data.pinnedTimezones ?? current?.pinnedTimezones ?? [],
     };
     const quietHoursChanged = preferences.quietStart !== (current?.quietStart ?? null)
       || preferences.quietEnd !== (current?.quietEnd ?? null)
@@ -209,7 +220,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
         .from(suggestions).innerJoin(intentions, eq(suggestions.intentionId, intentions.id)).where(and(
           eq(suggestions.ownerId, ownerId), eq(suggestions.type, 'intention_nudge'), eq(suggestions.state, 'snoozed'),
           lte(suggestions.snoozedUntil, now), eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt),
-          ne(intentions.status, 'archived'), ne(intentions.status, 'completed'),
+          notInArray(intentions.status, HIDDEN_STATUSES), ne(intentions.status, 'completed'),
         ));
       for (const reminder of dueReminders) if (reminder.intentionId && reminder.snoozedUntil) {
         await enqueueSnoozeReminderCheck({ intentionId: reminder.intentionId, ownerId, snoozedUntil: reminder.snoozedUntil.toISOString() });
@@ -225,6 +236,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       quietStart: row.quietStart,
       quietEnd: row.quietEnd,
       timezone: row.timezone,
+      pinnedTimezones: row.pinnedTimezones,
     };
   });
 
@@ -346,7 +358,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
           .where(eq(pushPreferences.ownerId, ownerId)).limit(1);
         if (preference?.enabled) {
           const queued = await enqueueSnoozeReminder({ intentionId, ownerId, snoozedUntil: snoozedUntil.toISOString() });
-          if (!queued) throw bad('The snooze is saved, but its reminder could not be scheduled yet. Veylo will retry when the queue is available.', 503);
+          if (!queued) throw bad('The snooze is saved, but its reminder could not be scheduled yet. ClearHead will retry when the queue is available.', 503);
         }
       }
       saved.push({ clientId: item.clientId, state, snoozedUntil: snoozedUntil?.toISOString() ?? null });
@@ -384,7 +396,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       await tx.update(intentions).set({
         originalVersions: [], rawCapture: 'Deleted intention', title: 'Deleted intention', kind: 'unclassified',
         intent: null, purpose: null, desiredOutcome: null, roughPlan: null, horizon: null,
-        effortEstimate: null, energyContext: null, aiMetadata: {}, status: 'archived', deletedAt: now,
+        effortEstimate: null, energyContext: null, customFields: [], aiMetadata: {}, status: 'archived', deletedAt: now,
         createdAt: now, updatedAt: now, version: sql`${intentions.version} + 1`,
       })
         .where(and(eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt)));
@@ -431,7 +443,8 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
         id: block.id, clientId: block.clientId, intentionClientId, startsAt: block.startsAt.toISOString(),
         endsAt: block.endsAt.toISOString(), timezone: block.timezone, syncState: block.syncState,
         externalProvider: block.externalProvider, externalEventId: block.externalEventId,
-        externalUrl: block.externalUrl, deletedAt: iso(block.deletedAt), updatedAt: block.updatedAt.toISOString(),
+        externalUrl: block.externalUrl, externalAccountLabel: block.externalAccountLabel,
+        deletedAt: iso(block.deletedAt), updatedAt: block.updatedAt.toISOString(),
       })),
     };
   });
@@ -453,20 +466,30 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       const now = new Date();
       const synced = await db.transaction(async (tx) => {
         const [parent] = await tx.select({ id: intentions.id }).from(intentions).where(and(
-          eq(intentions.ownerId, ownerId), eq(intentions.clientId, block.intentionClientId), isNull(intentions.deletedAt), ne(intentions.status, 'archived'),
+          eq(intentions.ownerId, ownerId), eq(intentions.clientId, block.intentionClientId), isNull(intentions.deletedAt), notInArray(intentions.status, HIDDEN_STATUSES),
         )).limit(1).for('update');
         if (!parent) return null;
-        const values = {
-          ownerId, intentionId: parent.id, clientId: block.clientId,
-          startsAt: new Date(block.startsAt), endsAt: new Date(block.endsAt), timezone: block.timezone,
-          externalProvider: block.externalProvider ?? null, externalEventId: block.externalEventId ?? null,
-          externalUrl: block.externalUrl ?? null, syncState: block.syncState,
-          deletedAt: block.deleted ? now : null, updatedAt: now,
-        };
         const [existing] = await tx.select().from(timeBlocks).where(and(
           eq(timeBlocks.ownerId, ownerId), eq(timeBlocks.clientId, block.clientId),
         )).limit(1);
         if (existing && existing.intentionId !== parent.id) throw bad('This time block ID already belongs to another intention.', 409);
+        // externalProvider/externalEventId/externalUrl and the 'pending'/'synced' syncState
+        // are owned by the dedicated push/sync flows (POST /integrations/google/events, the
+        // background Google Calendar sync), not by this generic scheduling endpoint. The
+        // client's own copy of a block can be stale right after one of those flows runs
+        // elsewhere (it only learns the result once it next applies the server's response or
+        // pulls), so a stale offline-queue replay must never downgrade an already-established
+        // link back to null/local - that silently orphans the real Google event, which the
+        // next sync then reimports as a duplicate thought.
+        const values = {
+          ownerId, intentionId: parent.id, clientId: block.clientId,
+          startsAt: new Date(block.startsAt), endsAt: new Date(block.endsAt), timezone: block.timezone,
+          externalProvider: block.externalProvider ?? existing?.externalProvider ?? null,
+          externalEventId: block.externalEventId ?? existing?.externalEventId ?? null,
+          externalUrl: block.externalUrl ?? existing?.externalUrl ?? null,
+          syncState: block.syncState === 'local' && existing && existing.syncState !== 'local' ? existing.syncState : block.syncState,
+          deletedAt: block.deleted ? now : null, updatedAt: now,
+        };
         if (existing && existing.startsAt.getTime() === values.startsAt.getTime() && existing.endsAt.getTime() === values.endsAt.getTime()
           && existing.timezone === values.timezone && existing.externalProvider === values.externalProvider
           && existing.externalEventId === values.externalEventId && existing.externalUrl === values.externalUrl
@@ -500,7 +523,8 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
         horizon: z.enum(intentionHorizons).nullable().optional(),
         effortEstimate: z.number().int().min(0).max(10080).nullable().optional(),
         energyContext: z.string().max(120).nullable().optional(),
-        status: z.enum(['captured', 'exploring', 'ready', 'planned', 'active', 'completed', 'archived']),
+        customFields: customFieldsSchema.optional(),
+        status: z.enum(['captured', 'exploring', 'ready', 'planned', 'active', 'completed', 'archived', 'trashed']),
         expectedVersion: z.number().int().positive().nullable().optional(), deleted: z.boolean().optional(),
       })).max(500),
     });
@@ -524,7 +548,8 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
             && current.intent === (item.intent ?? null) && current.purpose === (item.purpose ?? null)
             && current.desiredOutcome === (item.desiredOutcome ?? null) && current.roughPlan === (item.roughPlan ?? null)
             && current.horizon === (item.horizon ?? null) && current.effortEstimate === (item.effortEstimate ?? null)
-            && current.energyContext === (item.energyContext ?? null) && current.status === item.status
+            && current.energyContext === (item.energyContext ?? null) && sameCustomFields(current.customFields, item.customFields)
+            && current.status === item.status
             && Boolean(current.deletedAt) === Boolean(item.deleted);
           const unchangedExceptForAi = ['captured', 'exploring'].includes(current.status) && current.rawCapture === item.rawCapture
             && matchesAIOnlyChange(aiMetadata,
@@ -533,7 +558,8 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
             && current.intent === (item.intent ?? null) && current.purpose === (item.purpose ?? null)
             && current.desiredOutcome === (item.desiredOutcome ?? null) && current.roughPlan === (item.roughPlan ?? null)
             && current.effortEstimate === (item.effortEstimate ?? null)
-            && current.energyContext === (item.energyContext ?? null) && current.status === item.status
+            && current.energyContext === (item.energyContext ?? null) && sameCustomFields(current.customFields, item.customFields)
+            && current.status === item.status
             && !item.deleted;
           if (sameSnapshot || unchangedExceptForAi) {
             saved.push({ clientId: current.clientId, remoteId: current.id, version: current.version });
@@ -546,7 +572,8 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
           && current.intent === (item.intent ?? null) && current.purpose === (item.purpose ?? null)
           && current.desiredOutcome === (item.desiredOutcome ?? null) && current.roughPlan === (item.roughPlan ?? null)
           && current.horizon === (item.horizon ?? null) && current.effortEstimate === (item.effortEstimate ?? null)
-          && current.energyContext === (item.energyContext ?? null) && current.status === item.status
+          && current.energyContext === (item.energyContext ?? null) && sameCustomFields(current.customFields, item.customFields)
+          && current.status === item.status
           && Boolean(current.deletedAt) === Boolean(item.deleted);
         if (unchanged) {
           saved.push({ clientId: current.clientId, remoteId: current.id, version: current.version });
@@ -556,16 +583,23 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
           continue;
         }
         const now = new Date();
+        // trashedAt is server-derived from the status transition, never client-supplied -
+        // mirrors how deletedAt already works for the `deleted` flag on this same payload.
+        const trashingNow = item.status === 'trashed' && current.status !== 'trashed';
+        const restoringNow = item.status !== 'trashed' && current.status === 'trashed';
         const [updated] = await db.update(intentions).set({
           rawCapture: item.rawCapture, title: item.title, kind: item.kind,
           intent: item.intent ?? null, purpose: item.purpose ?? null,
           desiredOutcome: item.desiredOutcome ?? null, roughPlan: item.roughPlan ?? null,
           horizon: item.horizon ?? null, effortEstimate: item.effortEstimate ?? null,
-          energyContext: item.energyContext ?? null, status: item.status,
+          energyContext: item.energyContext ?? null, customFields: item.customFields ?? [], status: item.status,
+          ...(trashingNow ? { trashedAt: now } : restoringNow ? { trashedAt: null } : {}),
           deletedAt: item.deleted ? now : null, updatedAt: now, version: current.version + 1,
         }).where(and(eq(intentions.id, current.id), eq(intentions.ownerId, ownerId), eq(intentions.version, current.version))).returning();
-        if (updated) saved.push({ clientId: updated.clientId, remoteId: updated.id, version: updated.version });
-        else {
+        if (updated) {
+          saved.push({ clientId: updated.clientId, remoteId: updated.id, version: updated.version });
+          if (trashingNow) void retractCalendarEventsForIntention(ownerId, updated.id);
+        } else {
           const [latest] = await db.select().from(intentions).where(and(eq(intentions.id, current.id), eq(intentions.ownerId, ownerId))).limit(1);
           if (latest) conflicts.push({ clientId: item.clientId, current: shapeConflict(latest) });
         }
@@ -576,7 +610,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
           kind: item.kind, intent: item.intent ?? null, purpose: item.purpose ?? null,
           desiredOutcome: item.desiredOutcome ?? null, roughPlan: item.roughPlan ?? null,
           horizon: item.horizon ?? null, effortEstimate: item.effortEstimate ?? null,
-          energyContext: item.energyContext ?? null, status: item.status,
+          energyContext: item.energyContext ?? null, customFields: item.customFields ?? [], status: item.status,
           createdAt: item.capturedAt ? new Date(item.capturedAt) : now, updatedAt: now,
         }).onConflictDoNothing({ target: [intentions.ownerId, intentions.clientId] }).returning();
         if (created) saved.push({ clientId: created.clientId, remoteId: created.id, version: created.version });
@@ -587,7 +621,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       }
       const [persisted] = await db.select({ id: intentions.id, version: intentions.version, status: intentions.status, aiMetadata: intentions.aiMetadata }).from(intentions)
         .where(and(eq(intentions.ownerId, ownerId), eq(intentions.clientId, item.clientId))).limit(1);
-      if (persisted && await aiEnabled(ownerId) && persisted.status !== 'archived') {
+      if (persisted && await aiEnabled(ownerId) && !HIDDEN_STATUSES.includes(persisted.status)) {
         void enqueueInterpretation({ intentionId: persisted.id, ownerId, expectedVersion: persisted.version, evaluateOnly: Boolean(persisted.aiMetadata.processedAt) || !['captured', 'exploring'].includes(persisted.status) });
       }
     }
@@ -637,7 +671,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
     const result = await db.transaction(async (tx) => {
       const [row] = await tx.select().from(intentions).where(and(eq(intentions.id, params.data.id), eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt))).for('update');
       if (!row) return null;
-      if (row.status === 'archived') throw bad('Restore this thought before adding a piece.', 409);
+      if (HIDDEN_STATUSES.includes(row.status)) throw bad('Restore this thought before adding a piece.', 409);
       const current = row.originalVersions.length ? row.originalVersions : initialOriginalVersions(row.clientId, row.rawCapture, row.createdAt.toISOString(), row.createdAt.toISOString());
       let next;
       try { next = appendOriginalPiece(current, parsed.data, new Date().toISOString()); }
@@ -695,7 +729,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       eq(intentions.id, params.data.id), eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt),
     )).limit(1);
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    if (row.status === 'archived') throw bad('Restore this thought before starting a new brainstorm.', 409);
+    if (HIDDEN_STATUSES.includes(row.status)) throw bad('Restore this thought before starting a new brainstorm.', 409);
 
     const now = new Date();
     const assistant = await db.transaction(async (tx) => {
@@ -704,7 +738,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
         eq(intentions.id, row.id), eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt),
       )).limit(1).for('update');
       if (!current) throw bad('not_found', 404);
-      if (current.status === 'archived') throw bad('Restore this thought before starting a new brainstorm.', 409);
+      if (HIDDEN_STATUSES.includes(current.status)) throw bad('Restore this thought before starting a new brainstorm.', 409);
       const [insertedUser] = await tx.insert(brainstormMessages).values({
         ownerId, intentionId: row.id, clientRequestId: input.data.clientRequestId,
         role: 'user', status: 'complete', content: input.data.message, createdAt: now, updatedAt: now,
@@ -768,7 +802,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
     if (!z.string().uuid().safeParse(id).success) throw bad('Provide a valid thought ID');
     const [row] = await db.select().from(intentions).where(and(eq(intentions.id, id), eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt))).limit(1);
     if (!row) return reply.code(404).send({ error: 'not_found' });
-    if (row.status === 'archived') throw bad('Restore this thought before evaluating it.', 409);
+    if (HIDDEN_STATUSES.includes(row.status)) throw bad('Restore this thought before evaluating it.', 409);
     if (!await aiEnabled(ownerId)) throw bad('Enable AI-assisted features in Preferences first.', 403);
     const queued = await enqueueInterpretation({ intentionId: id, ownerId, expectedVersion: row.version, evaluateOnly: Boolean(row.aiMetadata.processedAt) || !['captured', 'exploring'].includes(row.status) });
     return reply.code(queued ? 202 : 503).send({ queued, message: queued ? 'Evaluation queued' : 'Evaluation is unavailable. Try again shortly.' });
@@ -825,13 +859,22 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
     const parsed = intentionPatchSchema.safeParse(request.body);
     if (!parsed.success) throw bad(parsed.error.issues[0]?.message ?? 'Invalid intention update');
     const { expectedVersion, ...changes } = parsed.data;
+    const [existing] = await db.select({ status: intentions.status }).from(intentions).where(and(
+      eq(intentions.id, id), eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt),
+    )).limit(1);
+    // trashedAt is server-derived from the status transition, never client-supplied -
+    // mirrors how deletedAt already works for the destructive delete path below.
+    const trashingNow = changes.status === 'trashed' && existing?.status !== 'trashed';
+    const restoringNow = changes.status !== undefined && changes.status !== 'trashed' && existing?.status === 'trashed';
     const [updated] = await db.update(intentions).set({
-      ...changes, updatedAt: new Date(), version: expectedVersion + 1,
+      ...changes, ...(trashingNow ? { trashedAt: new Date() } : restoringNow ? { trashedAt: null } : {}),
+      updatedAt: new Date(), version: expectedVersion + 1,
     }).where(and(
       eq(intentions.id, id), eq(intentions.ownerId, ownerId), eq(intentions.version, expectedVersion), isNull(intentions.deletedAt),
     )).returning();
     if (updated) {
-      if (updated.status !== 'archived' && await aiEnabled(ownerId)) void enqueueInterpretation({ intentionId: updated.id, ownerId, expectedVersion: updated.version, evaluateOnly: true });
+      if (trashingNow) void retractCalendarEventsForIntention(ownerId, updated.id);
+      if (!HIDDEN_STATUSES.includes(updated.status) && await aiEnabled(ownerId)) void enqueueInterpretation({ intentionId: updated.id, ownerId, expectedVersion: updated.version, evaluateOnly: true });
       return { intention: shapeIntention(updated) };
     }
     const [current] = await db.select().from(intentions).where(and(eq(intentions.id, id), eq(intentions.ownerId, ownerId))).limit(1);
@@ -849,11 +892,19 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
       const [row] = await tx.update(intentions).set({
         originalVersions: [], rawCapture: 'Deleted intention', title: 'Deleted intention', kind: 'unclassified',
         intent: null, purpose: null, desiredOutcome: null, roughPlan: null, horizon: null,
-        effortEstimate: null, energyContext: null, aiMetadata: {}, status: 'archived', deletedAt: now,
+        effortEstimate: null, energyContext: null, customFields: [], aiMetadata: {}, status: 'archived', deletedAt: now,
         createdAt: now, updatedAt: now, version: sql`${intentions.version} + 1`,
       }).where(and(eq(intentions.id, id), eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt)))
         .returning({ id: intentions.id });
       if (!row) return null;
+      // Normally already cleared by retractCalendarEventsForIntention when the thought was
+      // first moved to trash - this is defensive cleanup for a thought purged without ever
+      // passing through 'trashed' (e.g. the bulk-delete path), so no calendarPushes row is
+      // left pointing at a time block this request is about to scrub.
+      await tx.update(calendarPushes).set({ deletedAt: now }).where(and(
+        inArray(calendarPushes.timeBlockId, tx.select({ id: timeBlocks.id }).from(timeBlocks).where(and(eq(timeBlocks.intentionId, id), eq(timeBlocks.ownerId, ownerId)))),
+        isNull(calendarPushes.deletedAt),
+      ));
       await tx.update(timeBlocks).set({
         startsAt: now, endsAt: new Date(now.getTime() + 1_000), timezone: 'UTC',
         externalProvider: null, externalEventId: null, externalUrl: null, syncState: 'local', deletedAt: now, createdAt: now, updatedAt: now,
@@ -879,7 +930,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
         eq(intentions.id, id), eq(intentions.ownerId, ownerId), isNull(intentions.deletedAt),
       )).limit(1).for('update');
       if (!parent) return null;
-      if (parent.status === 'archived') throw bad('Restore this thought before planning time for it.', 409);
+      if (HIDDEN_STATUSES.includes(parent.status)) throw bad('Restore this thought before planning time for it.', 409);
       const [inserted] = await tx.insert(timeBlocks).values({
         ownerId, intentionId: id, clientId: input.clientId, startsAt: new Date(input.startsAt),
         endsAt: new Date(input.endsAt), timezone: input.timezone,
@@ -916,7 +967,7 @@ export const intentionRoutes: FastifyPluginAsync = async (app) => {
     const result = await db.transaction(async (tx) => {
       const found = await tx.select({ id: intentions.id }).from(intentions).where(and(
         eq(intentions.ownerId, ownerId), inArray(intentions.id, [id, parsed.data.targetId]),
-        isNull(intentions.deletedAt), ne(intentions.status, 'archived'),
+        isNull(intentions.deletedAt), notInArray(intentions.status, HIDDEN_STATUSES),
       )).orderBy(asc(intentions.id)).for('update');
       const ids = new Set(found.map((item) => item.id));
       if (!ids.has(id) || !ids.has(parsed.data.targetId)) return null;

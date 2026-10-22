@@ -36,7 +36,7 @@ function database(userId: string) {
       try {
         await db.execAsync(`PRAGMA key = '${key}'; PRAGMA secure_delete = ON;`);
         const cipher = await db.getFirstAsync<{ cipher_version: string }>('PRAGMA cipher_version');
-        if (!cipher?.cipher_version) throw new Error('Encrypted local storage is unavailable in this build. Install a Veylo development or production build with SQLCipher enabled.');
+        if (!cipher?.cipher_version) throw new Error('Encrypted local storage is unavailable in this build. Install a ClearHead development or production build with SQLCipher enabled.');
         return db;
       } catch (error) {
         await db.closeAsync().catch(() => undefined);

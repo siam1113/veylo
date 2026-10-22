@@ -1,5 +1,5 @@
 {
-  "name": "veylo",
+  "name": "clearhead",
   "version": "1.0.0",
   "private": true,
   "description": "A private space to capture and shape personal intentions",
@@ -9,19 +9,19 @@
     "packages/*"
   ],
   "scripts": {
-    "build": "npm run build -w @veylo/domain && npm run build -w @veylo/db && npm run build -w @veylo/api && npm run build -w @veylo/worker && npm run build -w @veylo/web && npm run build -w @veylo/mobile",
-    "typecheck": "npm run build:shared && npm run typecheck -w @veylo/domain && npm run typecheck -w @veylo/db && npm run typecheck -w @veylo/api && npm run typecheck -w @veylo/worker && npm run typecheck -w @veylo/web && npm run typecheck -w @veylo/mobile",
-    "test:contracts": "npm run test:ai-interpretation -w @veylo/api && npm run test:google-contract -w @veylo/api && npm run test:jira-contract -w @veylo/api && npm run test:notion-contract -w @veylo/api && npm run test:supabase-key -w @veylo/api && npm run test -w @veylo/worker && npm run test -w @veylo/mobile",
-    "build:shared": "npm run build -w @veylo/domain && npm run build -w @veylo/db",
-    "dev:web": "npm run build -w @veylo/domain && npm run dev -w @veylo/web",
-    "dev:api": "npm run build:shared && npm run dev -w @veylo/api",
-    "dev:worker": "npm run build:shared && npm run dev -w @veylo/worker",
-    "dev:mobile": "npm run build -w @veylo/domain && npm run start -w @veylo/mobile",
-    "cloud:build:mobile:ios": "npm run build -w @veylo/domain && npm run cloud:build:ios -w @veylo/mobile",
-    "cloud:build:mobile:android": "npm run build -w @veylo/domain && npm run cloud:build:android -w @veylo/mobile",
-    "local:build:mobile:ios": "npm run build -w @veylo/domain && npm run local:build:ios -w @veylo/mobile",
-    "local:build:mobile:android": "npm run build -w @veylo/domain && npm run local:build:android -w @veylo/mobile",
-    "db:migrate": "npm run db:migrate -w @veylo/db"
+    "build": "npm run build -w @clearhead/domain && npm run build -w @clearhead/db && npm run build -w @clearhead/api && npm run build -w @clearhead/worker && npm run build -w @clearhead/web && npm run build -w @clearhead/mobile",
+    "typecheck": "npm run build:shared && npm run typecheck -w @clearhead/domain && npm run typecheck -w @clearhead/db && npm run typecheck -w @clearhead/api && npm run typecheck -w @clearhead/worker && npm run typecheck -w @clearhead/web && npm run typecheck -w @clearhead/mobile",
+    "test:contracts": "npm run test:ai-interpretation -w @clearhead/api && npm run test:google-contract -w @clearhead/api && npm run test:jira-contract -w @clearhead/api && npm run test:notion-contract -w @clearhead/api && npm run test:supabase-key -w @clearhead/api && npm run test -w @clearhead/worker && npm run test -w @clearhead/mobile",
+    "build:shared": "npm run build -w @clearhead/domain && npm run build -w @clearhead/db",
+    "dev:web": "npm run build -w @clearhead/domain && npm run dev -w @clearhead/web",
+    "dev:api": "npm run build:shared && npm run dev -w @clearhead/api",
+    "dev:worker": "npm run build:shared && npm run dev -w @clearhead/worker",
+    "dev:mobile": "npm run build -w @clearhead/domain && npm run start -w @clearhead/mobile",
+    "cloud:build:mobile:ios": "npm run build -w @clearhead/domain && npm run cloud:build:ios -w @clearhead/mobile",
+    "cloud:build:mobile:android": "npm run build -w @clearhead/domain && npm run cloud:build:android -w @clearhead/mobile",
+    "local:build:mobile:ios": "npm run build -w @clearhead/domain && npm run local:build:ios -w @clearhead/mobile",
+    "local:build:mobile:android": "npm run build -w @clearhead/domain && npm run local:build:android -w @clearhead/mobile",
+    "db:migrate": "npm run db:migrate -w @clearhead/db"
   },
   "engines": {
     "node": ">=22.13"

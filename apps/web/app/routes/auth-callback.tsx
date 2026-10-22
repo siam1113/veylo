@@ -27,7 +27,7 @@ export default function AuthCallback() {
         if (!exchanged) throw new Error('Auth code exchange failed');
         if (active) window.location.replace('/');
       } catch {
-        if (active) setMessage('This sign-in link is invalid or expired. Return to Veylo and request a new link.');
+        if (active) setMessage('This sign-in link is invalid or expired. Return to ClearHead and request a new link.');
       }
     };
     void finishSignIn();

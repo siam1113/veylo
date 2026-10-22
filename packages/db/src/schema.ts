@@ -2,7 +2,7 @@ import {
   boolean, check, foreignKey, index, integer, jsonb, pgSchema, pgTable, primaryKey, text, timestamp, unique, uniqueIndex, uuid, varchar,
 } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
-import type { OriginalVersion } from '@veylo/domain';
+import type { CustomField, OriginalVersion } from '@clearhead/domain';
 
 // Supabase owns this table; the declaration lets Drizzle reflect the foreign
 // keys without treating auth.users as an application-managed table.
@@ -23,10 +23,12 @@ export const intentions = pgTable('intentions', {
   horizon: varchar('horizon', { length: 16 }),
   effortEstimate: integer('effort_estimate'),
   energyContext: varchar('energy_context', { length: 120 }),
+  customFields: jsonb('custom_fields').$type<CustomField[]>().notNull().default([]),
   status: varchar('status', { length: 24 }).notNull().default('captured'),
   aiMetadata: jsonb('ai_metadata').$type<Record<string, unknown>>().notNull().default({}),
   version: integer('version').notNull().default(1),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
+  trashedAt: timestamp('trashed_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({
@@ -38,7 +40,7 @@ export const intentions = pgTable('intentions', {
   kindValue: check('intentions_kind_check', sql`${table.kind} IN ('idea','action','commitment','question','goal','meeting','note','unclassified')`),
   horizonValue: check('intentions_horizon_check', sql`${table.horizon} IS NULL OR ${table.horizon} IN ('today','week','month','someday','custom')`),
   effortRange: check('intentions_effort_estimate_check', sql`${table.effortEstimate} IS NULL OR ${table.effortEstimate} BETWEEN 0 AND 10080`),
-  statusValue: check('intentions_status_check', sql`${table.status} IN ('captured','exploring','ready','planned','active','completed','archived')`),
+  statusValue: check('intentions_status_check', sql`${table.status} IN ('captured','exploring','ready','planned','active','completed','archived','trashed')`),
   positiveVersion: check('intentions_version_check', sql`${table.version} > 0`),
 }));
 
@@ -130,6 +132,10 @@ export const timeBlocks = pgTable('time_blocks', {
   externalProvider: varchar('external_provider', { length: 32 }),
   externalEventId: varchar('external_event_id', { length: 255 }),
   externalUrl: text('external_url'),
+  externalTitle: varchar('external_title', { length: 160 }),
+  // The connected account's label (e.g. an email) for the provider named in externalProvider -
+  // disambiguates which of a user's possibly-several accounts of that provider this is.
+  externalAccountLabel: varchar('external_account_label', { length: 160 }),
   syncState: varchar('sync_state', { length: 20 }).notNull().default('local'),
   deletedAt: timestamp('deleted_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -137,6 +143,10 @@ export const timeBlocks = pgTable('time_blocks', {
 }, (table) => ({
   ownerStart: index('time_blocks_owner_start_idx').on(table.ownerId, table.startsAt),
   ownerClient: uniqueIndex('time_blocks_owner_client_idx').on(table.ownerId, table.clientId),
+  ownerProviderEvent: uniqueIndex('time_blocks_owner_provider_event_idx').on(table.ownerId, table.externalProvider, table.externalEventId)
+    .where(sql`${table.deletedAt} IS NULL AND ${table.externalProvider} IS NOT NULL AND ${table.externalEventId} IS NOT NULL`),
+  // FK target for calendar_pushes - lets a push row's (ownerId, timeBlockId) be verified in one constraint.
+  ownerBlockId: uniqueIndex('time_blocks_owner_id_id_idx').on(table.ownerId, table.id),
   validRange: check('time_blocks_ends_at_check', sql`${table.endsAt} > ${table.startsAt}`),
   syncStateValue: check('time_blocks_sync_state_check', sql`${table.syncState} IN ('local','pending','synced','error')`),
   intentionOwner: foreignKey({
@@ -160,8 +170,44 @@ export const integrations = pgTable('integrations', {
   revokedAt: timestamp('revoked_at', { withTimezone: true }),
   metadata: jsonb('metadata').$type<Record<string, unknown>>().notNull().default({}),
 }, (table) => ({
-  ownerProvider: uniqueIndex('integrations_owner_provider_idx').on(table.ownerId, table.provider),
+  // Multi-account: a user can connect more than one account of the same provider,
+  // so the identity key is (owner, provider, provider account), not (owner, provider)
+  // alone. providerAccountId must never be left NULL by application code for new
+  // rows, or this index stops deduping (Postgres doesn't treat NULL = NULL here).
+  ownerProviderAccount: uniqueIndex('integrations_owner_provider_account_idx').on(table.ownerId, table.provider, table.providerAccountId),
   ownerIndex: index('integrations_owner_idx').on(table.ownerId),
+  providerActive: index('integrations_provider_active_idx').on(table.provider).where(sql`${table.revokedAt} IS NULL`),
+}));
+
+export const calendarPushes = pgTable('calendar_pushes', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerId: uuid('owner_id').notNull().references(() => authUsers.id, { onDelete: 'cascade' }),
+  timeBlockId: uuid('time_block_id').notNull(),
+  integrationId: uuid('integration_id').notNull().references(() => integrations.id, { onDelete: 'cascade' }),
+  provider: varchar('provider', { length: 32 }).notNull(),
+  externalEventId: varchar('external_event_id', { length: 255 }),
+  externalUrl: text('external_url'),
+  externalTitle: varchar('external_title', { length: 160 }),
+  syncState: varchar('sync_state', { length: 20 }).notNull().default('pending'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp('deleted_at', { withTimezone: true }),
+}, (table) => ({
+  // One push per (time block, connected account) - re-adding the same calendar account is a retry, not a second row.
+  blockIntegration: uniqueIndex('calendar_pushes_block_integration_idx').on(table.timeBlockId, table.integrationId)
+    .where(sql`${table.deletedAt} IS NULL`),
+  // Mirrors time_blocks_owner_provider_event_idx (migration 0017): dedups against the provider's
+  // own event id per account, so autonomous sync reading a pushed event back can't double-create.
+  ownerProviderEvent: uniqueIndex('calendar_pushes_owner_provider_event_idx').on(table.ownerId, table.provider, table.externalEventId)
+    .where(sql`${table.deletedAt} IS NULL AND ${table.externalEventId} IS NOT NULL`),
+  timeBlockIndex: index('calendar_pushes_time_block_idx').on(table.timeBlockId).where(sql`${table.deletedAt} IS NULL`),
+  integrationIndex: index('calendar_pushes_integration_idx').on(table.integrationId).where(sql`${table.deletedAt} IS NULL`),
+  syncStateValue: check('calendar_pushes_sync_state_check', sql`${table.syncState} IN ('pending','synced','error')`),
+  timeBlockOwner: foreignKey({
+    name: 'calendar_pushes_time_block_owner_fkey',
+    columns: [table.ownerId, table.timeBlockId],
+    foreignColumns: [timeBlocks.ownerId, timeBlocks.id],
+  }).onDelete('cascade'),
 }));
 
 export const oauthStates = pgTable('oauth_states', {
@@ -216,6 +262,7 @@ export const pushPreferences = pgTable('push_preferences', {
   quietStart: varchar('quiet_start', { length: 5 }),
   quietEnd: varchar('quiet_end', { length: 5 }),
   timezone: varchar('timezone', { length: 80 }),
+  pinnedTimezones: text('pinned_timezones').array().notNull().default(sql`ARRAY[]::text[]`),
   dailyLimit: integer('daily_limit').notNull().default(2),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (table) => ({

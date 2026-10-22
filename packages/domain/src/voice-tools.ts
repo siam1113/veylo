@@ -11,7 +11,7 @@ import { z } from 'zod';
 
 export const voiceToolNames = [
   'list_intentions', 'get_intention', 'list_relationships', 'get_preferences', 'list_connections', 'check_calendar_availability',
-  'create_intention', 'update_intention', 'archive_intention', 'restore_intention',
+  'create_intention', 'update_intention', 'archive_intention', 'restore_intention', 'trash_intention', 'restore_from_trash',
   'schedule_time_block', 'remove_time_block', 'create_relationship', 'delete_relationship',
   'update_preferences', 'set_suggestion_feedback', 'navigate_view', 'add_calendar_event',
   'delete_all_intentions', 'disconnect_integration', 'request_account_deletion',
@@ -23,7 +23,7 @@ export const voiceToolRelations = ['supports', 'related', 'depends_on'] as const
 export const voiceToolIntentionStatuses = ['captured', 'exploring', 'ready', 'planned', 'active', 'completed'] as const;
 export const voiceToolHorizons = ['today', 'week', 'month', 'someday', 'custom'] as const;
 export const voiceToolSuggestionStates = ['open', 'accepted', 'dismissed', 'snoozed'] as const;
-export const voiceToolIntentionListFilters = ['active', 'archived', 'all'] as const;
+export const voiceToolIntentionListFilters = ['active', 'archived', 'trashed', 'all'] as const;
 
 /**
  * Agent personalization: the voices OpenAI's Realtime API (gpt-realtime) supports, the tone
@@ -77,6 +77,8 @@ export const voiceToolArgsSchemas = {
   }).strict(),
   archive_intention: z.object({ id: uuid }).strict(),
   restore_intention: z.object({ id: uuid }).strict(),
+  trash_intention: z.object({ id: uuid }).strict(),
+  restore_from_trash: z.object({ id: uuid }).strict(),
 
   schedule_time_block: z.object({
     intentionId: uuid,
@@ -123,6 +125,7 @@ export const voiceToolRequiresConfirm: Record<VoiceToolName, boolean> = {
   list_intentions: false, get_intention: false, list_relationships: false, get_preferences: false,
   list_connections: false, check_calendar_availability: false,
   create_intention: false, update_intention: false, archive_intention: false, restore_intention: false,
+  trash_intention: false, restore_from_trash: false,
   schedule_time_block: false, remove_time_block: false, create_relationship: false, delete_relationship: false,
   update_preferences: false, set_suggestion_feedback: false, navigate_view: false,
   add_calendar_event: true, delete_all_intentions: true, disconnect_integration: true, request_account_deletion: true,
@@ -135,7 +138,7 @@ export const voiceToolDefinitions: VoiceToolDefinition[] = [
   {
     type: 'function', name: 'list_intentions',
     description: "List the user's intentions (captured thoughts). Use this to find an intention's id before calling another tool, or to answer questions about what's in their space.",
-    parameters: { type: 'object', properties: { filter: { type: 'string', enum: voiceToolIntentionListFilters, description: "Defaults to 'active' (excludes archived)." } }, required: [] },
+    parameters: { type: 'object', properties: { filter: { type: 'string', enum: voiceToolIntentionListFilters, description: "Defaults to 'active' (excludes archived and trashed)." } }, required: [] },
   },
   {
     type: 'function', name: 'get_intention',
@@ -190,6 +193,16 @@ export const voiceToolDefinitions: VoiceToolDefinition[] = [
   {
     type: 'function', name: 'restore_intention',
     description: 'Restore a previously archived intention.',
+    parameters: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
+  },
+  {
+    type: 'function', name: 'trash_intention',
+    description: 'Move one intention to Trash. This removes it from the calendar and retracts any connected-calendar event immediately. Reversible with restore_from_trash within the trash retention window, after which it is permanently deleted. Does not require confirmation.',
+    parameters: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
+  },
+  {
+    type: 'function', name: 'restore_from_trash',
+    description: 'Restore a previously trashed intention out of Trash. Does not restore any calendar event that was retracted when it was trashed.',
     parameters: { type: 'object', properties: { id: { type: 'string', format: 'uuid' } }, required: ['id'] },
   },
   {

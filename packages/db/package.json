@@ -1,5 +1,5 @@
 {
-  "name": "@veylo/db",
+  "name": "@clearhead/db",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -24,7 +24,7 @@
     "test:db": "tsx test/setup-auth.ts && npm run db:migrate && npm run test"
   },
   "dependencies": {
-    "@veylo/domain": "*",
+    "@clearhead/domain": "*",
     "drizzle-orm": "^0.45.4",
     "postgres": "^3.4.7"
   },

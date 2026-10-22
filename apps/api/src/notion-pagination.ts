@@ -36,7 +36,7 @@ function titleText(value: unknown): string {
   }).join('');
 }
 
-/** Convert Notion's page and data_source search variants to the small read-only reference shown in Veylo. */
+/** Convert Notion's page and data_source search variants to the small read-only reference shown in ClearHead. */
 export function notionPageReference(value: NotionRecord) {
   if (typeof value.id !== 'string' || !value.id) return null;
   const properties = objectValue(value.properties);

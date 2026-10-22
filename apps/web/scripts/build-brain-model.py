@@ -81,7 +81,7 @@ for side, positions, faces, curvature in hemispheres:
 
 while len(binary) % 4:
     binary.append(0)
-gltf = dict(asset=dict(version='2.0', generator='Veylo fsaverage5 converter', copyright='Nilearn developers; see brain-LICENSE.txt and brain-SOURCES.md'), scene=0, scenes=[dict(nodes=[0, 1])], nodes=[dict(mesh=0), dict(mesh=1)], meshes=meshes, materials=[dict(name='Natural rose cortex', pbrMetallicRoughness=dict(baseColorFactor=[1, 1, 1, 1], metallicFactor=0, roughnessFactor=0.68))], buffers=[dict(byteLength=len(binary))], bufferViews=views, accessors=accessors)
+gltf = dict(asset=dict(version='2.0', generator='ClearHead fsaverage5 converter', copyright='Nilearn developers; see brain-LICENSE.txt and brain-SOURCES.md'), scene=0, scenes=[dict(nodes=[0, 1])], nodes=[dict(mesh=0), dict(mesh=1)], meshes=meshes, materials=[dict(name='Natural rose cortex', pbrMetallicRoughness=dict(baseColorFactor=[1, 1, 1, 1], metallicFactor=0, roughnessFactor=0.68))], buffers=[dict(byteLength=len(binary))], bufferViews=views, accessors=accessors)
 metadata = json.dumps(gltf, separators=(',', ':')).encode()
 metadata += b' ' * (-len(metadata) % 4)
 output = struct.pack('<III', 0x46546C67, 2, 28 + len(metadata) + len(binary))

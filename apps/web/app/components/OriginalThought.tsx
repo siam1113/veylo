@@ -1,4 +1,4 @@
-import type { OriginalVersion } from '@veylo/domain';
+import type { OriginalVersion } from '@clearhead/domain';
 import type { SyncIntention } from '../lib/sync.client';
 import { ThoughtIcon } from './ThoughtIcon';
 

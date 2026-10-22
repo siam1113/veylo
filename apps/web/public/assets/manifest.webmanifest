@@ -1,11 +1,11 @@
 {
-  "name": "Veylo — Personal Intention Space",
-  "short_name": "Veylo",
+  "name": "ClearHead — Personal Intention Space",
+  "short_name": "ClearHead",
   "description": "Catch what is on your mind. Let it find its shape later.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#eaf0ed",
-  "theme_color": "#eaf0ed",
+  "background_color": "#e7f1fe",
+  "theme_color": "#e7f1fe",
   "icons": [{ "src": "/assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }

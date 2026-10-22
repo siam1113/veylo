@@ -1,4 +1,4 @@
-import { intentionHorizons, intentionKinds } from '@veylo/domain';
+import { intentionHorizons, intentionKinds } from '@clearhead/domain';
 
 export type LayaGrounding = {
   model: string;

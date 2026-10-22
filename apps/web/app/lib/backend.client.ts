@@ -1,9 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-export const API = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:4100';
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+export const API = (import.meta.env?.VITE_API_URL as string | undefined) ?? 'http://localhost:4100';
+const SUPABASE_URL = import.meta.env?.VITE_SUPABASE_URL as string | undefined;
+const SUPABASE_KEY = import.meta.env?.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 
 const AUTH_REQUEST_TIMEOUT_MS = 20_000;
 const authFetch: typeof fetch = (input, init = {}) => {

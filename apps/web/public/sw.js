@@ -1,4 +1,4 @@
-const CACHE = 'veylo-shell-v3';
+const CACHE = 'clearhead-shell-v3';
 const SHELL = '/';
 
 self.addEventListener('install', (event) => {
@@ -8,7 +8,7 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(caches.keys().then((keys) => Promise.all(
-    keys.filter((key) => key.startsWith('veylo-shell-') && key !== CACHE).map((key) => caches.delete(key)),
+    keys.filter((key) => key.startsWith('clearhead-shell-') && key !== CACHE).map((key) => caches.delete(key)),
   )));
   self.clients.claim();
 });
@@ -20,7 +20,7 @@ self.addEventListener('push', (event) => {
   const body = typeof message.body === 'string' ? message.body : 'You can return to it whenever you’re ready.';
   const url = typeof message.url === 'string' && message.url.startsWith('/') && !message.url.startsWith('//') ? message.url : '/';
   event.waitUntil(self.registration.showNotification(title, {
-    body, icon: '/assets/icon.svg', tag: 'veylo-snooze-reminder',
+    body, icon: '/assets/icon.svg', tag: 'clearhead-snooze-reminder',
     renotify: false, data: { url },
   }));
 });

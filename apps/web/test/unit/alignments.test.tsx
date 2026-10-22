@@ -2,9 +2,9 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { alignmentContentSchema, type AlignmentRecord, type AlignmentWrite } from '@veylo/domain';
+import { alignmentContentSchema, type AlignmentRecord, type AlignmentWrite } from '@clearhead/domain';
 import { createAlignmentStore, type LocalAlignment } from '../../app/lib/alignments.client';
-import { AlignmentEditor, AlignView } from '../../app/components/AlignView';
+import { AlignmentEditor, AlignView, alignmentThoughtBreakdown } from '../../app/components/AlignView';
 const content = { kind: 'reason' as const, title: 'Less rushed mornings', note: '', intentionIds: [], archived: false };
 function harness() {
   const disk = new Map<string, string>();
@@ -67,10 +67,34 @@ test('archive and restore preserve content', async () => {
   store.save({ ...content, id: row.id, archived: false }, 2); await store.sync(); assert.equal(store.rows[0]?.archived, false); assert.equal(store.rows[0]?.title, content.title);
 });
 test('Align has a dedicated creation flow with optional thoughts', () => {
-  const html = renderToStaticMarkup(<AlignView entries={[]} items={[]} onSave={() => {}} onUseSynced={() => {}} onOpen={() => {}} />);
+  const html = renderToStaticMarkup(<AlignView entries={[]} items={[]} onSave={() => {}} onUseSynced={() => {}} onDelete={() => {}} onOpenIntention={() => {}} />);
   assert.match(html, /Add to Align/); assert.match(html, /link thoughts later/); assert.doesNotMatch(html, /Name a purpose|Save an intention first/);
   const editor = renderToStaticMarkup(<AlignmentEditor initialKind="reason" items={[]} onSave={() => {}} onUseSynced={() => {}} onClose={() => {}} />);
   assert.match(editor, /Create reason/); assert.match(editor, /No thoughts yet/);
   for (const kind of ['Reason', 'Goal', 'Direction', 'Value']) assert.match(editor, new RegExp(`>${kind}<`));
   assert.doesNotMatch(editor, /Original|Polished|Thought timeline/);
+});
+test('a card with linked thoughts shows an icon+count badge in the top-right tools row, not a text label', () => {
+  const itemId = randomUUID();
+  const entry: LocalAlignment = { ...content, id: randomUUID(), intentionIds: [itemId], version: 1, updatedAt: new Date().toISOString(), syncState: 'synced' };
+  const item = { id: itemId, title: 'Plan the garden', rawCapture: 'Plan the garden', kind: 'action', status: 'ready', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+  const html = renderToStaticMarkup(<AlignView entries={[entry]} items={[item]} onSave={() => {}} onUseSynced={() => {}} onDelete={() => {}} onOpenIntention={() => {}} />);
+  assert.doesNotMatch(html, />1 linked thought</); // no visible text label (the aria-label still carries it for screen readers), just the icon+count badge
+  assert.match(html, /alignment-card-tools">[^]*?alignment-thoughts-badge"[^>]*><svg[^]*?<\/svg><span class="alignment-breakdown-count">1<\/span>/); // badge sits in the tools cluster, alongside preview/edit/archive
+  assert.doesNotMatch(html, /Plan the garden/); // the full thought list only renders once the preview is opened, not on the card itself
+});
+test('alignmentThoughtBreakdown tallies linked thoughts by kind and status, excluding unlinked or archived ones', () => {
+  const now = new Date().toISOString();
+  const garden = { id: randomUUID(), title: 'Plan the garden', rawCapture: 'Plan the garden', kind: 'action', status: 'ready', createdAt: now, updatedAt: now };
+  const budget = { id: randomUUID(), title: 'Review the budget', rawCapture: 'Review the budget', kind: 'action', status: 'completed', createdAt: now, updatedAt: now };
+  const idea = { id: randomUUID(), title: 'A weekend idea', rawCapture: 'A weekend idea', kind: 'idea', status: 'captured', createdAt: now, updatedAt: now };
+  const unrelated = { id: randomUUID(), title: 'Not linked', rawCapture: 'Not linked', kind: 'action', status: 'ready', createdAt: now, updatedAt: now };
+  const entry = { intentionIds: [garden.id, budget.id, idea.id] };
+  const { linked, tally, kindTally, presentKinds } = alignmentThoughtBreakdown(entry, [garden, budget, idea, unrelated]);
+  assert.deepEqual(linked.map((item) => item.id).sort(), [budget.id, garden.id, idea.id].sort());
+  assert.deepEqual(tally, { ready: 1, completed: 1, captured: 1 });
+  assert.deepEqual(kindTally, { action: 2, idea: 1 });
+  assert.deepEqual(presentKinds, ['idea', 'action']); // follows the fixed kind display order, not insertion order
+  assert.deepEqual(alignmentThoughtBreakdown({ intentionIds: [] }, [garden]).linked, []); // no thoughts linked at all
+  assert.deepEqual(alignmentThoughtBreakdown({ intentionIds: [randomUUID()] }, [garden]).linked, []); // linked id no longer resolves (archived/unavailable)
 });

@@ -33,7 +33,7 @@ export async function readWorkEntries(provider: WorkProvider, token: string): Pr
     const result = await read<{
       data?: { viewer: { assignedIssues: { nodes: Array<{ id: string; identifier: string; title: string; dueDate: string | null; url: string; team: { name: string }; state: { type: string } }>; pageInfo: { hasNextPage: boolean } } } }; errors?: unknown[];
     }>('https://api.linear.app/graphql', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-      query: 'query VeyloAssignedIssues { viewer { assignedIssues(first: 100, filter: { state: { type: { nin: ["completed", "canceled"] } } }) { nodes { id identifier title dueDate url team { name } state { type } } pageInfo { hasNextPage } } } }',
+      query: 'query ClearHeadAssignedIssues { viewer { assignedIssues(first: 100, filter: { state: { type: { nin: ["completed", "canceled"] } } }) { nodes { id identifier title dueDate url team { name } state { type } } pageInfo { hasNextPage } } } }',
     }) });
     if (result.errors?.length || !result.data?.viewer?.assignedIssues) throw problem('Linear could not load your assigned issues. Check access and try again.');
     const issues = result.data.viewer.assignedIssues;
@@ -41,7 +41,7 @@ export async function readWorkEntries(provider: WorkProvider, token: string): Pr
   }
   if (provider === 'github') {
     // GitHub App permissions are selected at registration/installation, not broad OAuth repo scopes.
-    const issues = await read<Array<{ id: number; number: number; title: string; html_url: string; pull_request?: unknown; repository?: { full_name: string }; milestone?: { due_on?: string | null } | null }>>('https://api.github.com/issues?filter=assigned&state=open&per_page=100&sort=updated', { headers: { 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'Veylo' } });
+    const issues = await read<Array<{ id: number; number: number; title: string; html_url: string; pull_request?: unknown; repository?: { full_name: string }; milestone?: { due_on?: string | null } | null }>>('https://api.github.com/issues?filter=assigned&state=open&per_page=100&sort=updated', { headers: { 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'ClearHead' } });
     return { entries: issues.filter((issue) => !issue.pull_request).map((issue) => ({ id: String(issue.id), title: `#${issue.number} · ${issue.title}`, url: safeLink(issue.html_url, 'github.com'), context: issue.repository?.full_name ?? 'GitHub issue', date: issue.milestone?.due_on })), hasMore: issues.length >= 100, notice: 'Assigned open issues in repositories where the GitHub App is installed. Dates refer to milestone deadlines.' };
   }
   const query = new URLSearchParams({ query: 'from:me', count: '50', sort: 'timestamp', sort_dir: 'desc', highlight: 'false' });
@@ -53,7 +53,7 @@ export async function readWorkEntries(provider: WorkProvider, token: string): Pr
       date: Number.isFinite(Number(message.ts)) ? new Date(Number(message.ts) * 1000).toISOString() : null,
       context: message.channel.name ? `#${message.channel.name}` : 'Slack message', captureText: title,
     };
-  }), hasMore: (result.messages.paging?.pages ?? result.messages.pagination?.page_count ?? 1) > 1 || (result.messages.total ?? 0) > result.messages.matches.length, notice: 'Your 50 most recent searchable messages. Only messages you choose to keep become Veylo thoughts.' };
+  }), hasMore: (result.messages.paging?.pages ?? result.messages.pagination?.page_count ?? 1) > 1 || (result.messages.total ?? 0) > result.messages.matches.length, notice: 'Your 50 most recent searchable messages. Only messages you choose to keep become ClearHead thoughts.' };
 }
 
 export function slackText(value: string) {

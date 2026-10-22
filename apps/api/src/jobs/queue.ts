@@ -1,7 +1,7 @@
 import { Queue } from 'bullmq';
 import { Redis } from 'ioredis';
-import { db } from '@veylo/db/client';
-import { intentionRevisions } from '@veylo/db/schema';
+import { db } from '@clearhead/db/client';
+import { intentionRevisions } from '@clearhead/db/schema';
 import { env } from '../env.js';
 
 export const AI_QUEUE = 'veylo-ai';
@@ -97,6 +97,29 @@ export async function enqueueSnoozeReminderCheck(data: { intentionId: string; ow
     return true;
   } catch (error) {
     console.error('Could not queue an updated snooze reminder check', error);
+    return false;
+  }
+}
+
+export async function enqueueCalendarSync(integrationId: string, provider: 'google_calendar' | 'outlook') {
+  if (!queue) return false;
+  try {
+    const jobId = `calendar-sync-${integrationId}`;
+    const existing = await enqueueWithDeadline(queue.getJob(jobId));
+    if (existing && await enqueueWithDeadline(existing.getState()) === 'failed') {
+      await enqueueWithDeadline(existing.retry());
+      return true;
+    }
+    await enqueueWithDeadline(queue.add('calendar-sync', { integrationId, provider }, {
+      jobId,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 10_000 },
+      removeOnComplete: true,
+      removeOnFail: { age: 7 * 24 * 60 * 60, count: 1000 },
+    }));
+    return true;
+  } catch (error) {
+    console.error('Could not queue calendar sync', error);
     return false;
   }
 }

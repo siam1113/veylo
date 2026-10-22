@@ -58,6 +58,6 @@ export function AccountMenu({ name, email, onSelect, compact }: { name: string; 
     <button ref={trigger} className={`profile-button ${compact ? 'profile-button-compact' : ''}`} type="button" aria-label={compact ? `Account menu · ${name || email || 'Your space'}` : 'Account menu'} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined} onClick={() => { initialFocus.current = 0; setOpen((value) => !value); }} onKeyDown={(event) => {
       if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
       event.preventDefault(); initialFocus.current = event.key === 'ArrowUp' ? entries.length - 1 : 0; setOpen(true);
-    }}><span className="avatar" aria-hidden="true">{(name || email || 'V')[0].toUpperCase()}</span>{compact ? null : <><span className="profile-copy"><b>{name || 'Your space'}</b><small>Private by default</small></span><span className="more" aria-hidden="true">···</span></>}</button>
+    }}><span className="avatar" aria-hidden="true">{(name || email || 'V')[0].toUpperCase()}</span>{compact ? null : <span className="profile-copy"><b>{name || 'Your space'}</b></span>}</button>
   </div>;
 }

@@ -1,3 +1,36 @@
+/** A short, human label for an IANA zone, e.g. "America/New_York" -> "New York". */
+export function zoneCityName(zone: string): string {
+  const last = zone.split('/').pop() ?? zone;
+  return last.replace(/_/g, ' ');
+}
+
+/** The wall-clock time in another zone for the same instant shown on the local clock. */
+export function zoneTimeLabel(instant: Date, zone: string): string {
+  return instant.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', timeZone: zone });
+}
+
+/** -1/0/1 when the other zone's calendar date differs from the local date for this instant. */
+export function zoneDayOffset(instant: Date, zone: string): number {
+  const local = instant.toLocaleDateString('en-CA');
+  const remote = instant.toLocaleDateString('en-CA', { timeZone: zone });
+  return local === remote ? 0 : remote > local ? 1 : -1;
+}
+
+/** Short weekday for this instant as seen in another zone, e.g. "Sun" - shown instead of a
+ * bare +1/-1 so a day difference reads as an actual day, not a number that could be
+ * mistaken for an hour offset. */
+export function zoneWeekday(instant: Date, zone: string): string {
+  return instant.toLocaleDateString(undefined, { weekday: 'short', timeZone: zone });
+}
+
+/** A deterministic accent hue per zone, so the same pinned city reads as the same color
+ * everywhere it appears (day view gutter, week view events) without storing anything. */
+export function zoneHue(zone: string): number {
+  let hash = 0;
+  for (let index = 0; index < zone.length; index++) hash = (hash * 31 + zone.charCodeAt(index)) >>> 0;
+  return hash % 360;
+}
+
 /** Position intervals on a local, midnight-to-midnight clock face. */
 export function dayInterval(date: Date, start: Date, end: Date) {
   const midnight = new Date(date.getFullYear(), date.getMonth(), date.getDate());

@@ -10,12 +10,12 @@ const base = {
 test('Jira export keeps its site reference but drops token and unknown metadata', () => {
   const connection = shapeAccountExportConnection({
     ...base, provider: 'jira_cloud',
-    metadata: { siteName: 'Veylo team', siteUrl: 'https://example.atlassian.net', accessToken: 'secret', refreshToken: 'secret', email: 'private@example.com' },
+    metadata: { siteName: 'ClearHead team', siteUrl: 'https://example.atlassian.net', accessToken: 'secret', refreshToken: 'secret', email: 'private@example.com' },
   });
 
   assert.deepEqual(connection, {
     ...base, provider: 'jira_cloud',
-    metadata: { siteName: 'Veylo team', siteUrl: 'https://example.atlassian.net' },
+    metadata: { siteName: 'ClearHead team', siteUrl: 'https://example.atlassian.net' },
   });
 });
 

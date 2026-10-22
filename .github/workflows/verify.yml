@@ -15,13 +15,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: veylo
-          POSTGRES_PASSWORD: veylo
-          POSTGRES_DB: veylo
+          POSTGRES_USER: clearhead
+          POSTGRES_PASSWORD: clearhead
+          POSTGRES_DB: clearhead
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U veylo -d veylo"
+          --health-cmd "pg_isready -U clearhead -d clearhead"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -37,30 +37,30 @@ jobs:
       - name: Typecheck all packages
         run: npm run typecheck
       - name: Test shared domain behavior
-        run: npm run test -w @veylo/domain
+        run: npm run test -w @clearhead/domain
       - name: Test API export privacy contract
-        run: npm run test -w @veylo/api
+        run: npm run test -w @clearhead/api
       - name: Test worker quiet-hour scheduling
-        run: npm run test -w @veylo/worker
+        run: npm run test -w @clearhead/worker
       - name: Test AI and third-party provider contracts
         run: npm run test:contracts
       - name: Apply database migrations and test ownership constraints
-        run: npm run test:db -w @veylo/db
+        run: npm run test:db -w @clearhead/db
         env:
-          DATABASE_URL: postgresql://veylo:veylo@localhost:5432/veylo
-          VEYLO_DB_TESTS: '1'
+          DATABASE_URL: postgresql://clearhead:clearhead@localhost:5432/clearhead
+          CLEARHEAD_DB_TESTS: '1'
       - name: Test API persistence, account isolation, and OAuth callback replay protection
-        run: npm run test:integration -w @veylo/api
+        run: npm run test:integration -w @clearhead/api
         env:
-          DATABASE_URL: postgresql://veylo:veylo@localhost:5432/veylo
+          DATABASE_URL: postgresql://clearhead:clearhead@localhost:5432/clearhead
           SUPABASE_URL: https://supabase.test
           SUPABASE_PUBLISHABLE_KEY: integration-test-only
-          VEYLO_DB_TESTS: '1'
+          CLEARHEAD_DB_TESTS: '1'
       - name: Install Chromium for browser acceptance
-        run: npm exec -w @veylo/web -- playwright install --with-deps chromium
+        run: npm exec -w @clearhead/web -- playwright install --with-deps chromium
       - name: Exercise authenticated web capture and reload against PostgreSQL
-        run: npm run test:e2e -w @veylo/web
+        run: npm run test:e2e -w @clearhead/web
         env:
-          DATABASE_URL: postgresql://veylo:veylo@localhost:5432/veylo
+          DATABASE_URL: postgresql://clearhead:clearhead@localhost:5432/clearhead
       - name: Build all applications
         run: npm run build

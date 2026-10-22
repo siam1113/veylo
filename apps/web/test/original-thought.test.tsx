@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { initialOriginalVersions, appendOriginalPiece } from '@veylo/domain';
+import { initialOriginalVersions, appendOriginalPiece } from '@clearhead/domain';
 import { OriginalThought, OriginalGist, OriginalPieces } from '../app/components/OriginalThought';
 import { CapturePanel } from '../app/components/CapturePanel';
 import type { SyncIntention } from '../app/lib/sync.client';

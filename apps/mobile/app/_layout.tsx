@@ -11,7 +11,7 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, BoundaryState>
 
   static getDerivedStateFromError(error: Error): Partial<BoundaryState> { return { error }; }
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error('Veylo native render failed', error.message, info.componentStack);
+    console.error('ClearHead native render failed', error.message, info.componentStack);
     void this.reportClientError(error, info);
   }
 
@@ -33,15 +33,15 @@ class AppErrorBoundary extends Component<{ children: ReactNode }, BoundaryState>
 }
 
 export default function RootLayout() {
-  return <><StatusBar style="dark" /><AppErrorBoundary><Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#f7f5f0' } }} /></AppErrorBoundary></>;
+  return <><StatusBar style="dark" /><AppErrorBoundary><Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#e7f1fe' } }} /></AppErrorBoundary></>;
 }
 
 const styles = StyleSheet.create({
-  fill: { flex: 1, backgroundColor: '#f7f5f0' },
-  fallback: { flex: 1, justifyContent: 'center', backgroundColor: '#f7f5f0', padding: 28 },
-  eyebrow: { color: '#68765f', fontSize: 11, fontWeight: '700', letterSpacing: 1.4, marginBottom: 16 },
-  title: { color: '#292a25', fontSize: 30, fontWeight: '600', letterSpacing: -1, marginBottom: 10 },
-  copy: { color: '#77796e', fontSize: 15, lineHeight: 23 },
-  button: { minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: '#68765f', borderRadius: 14, marginTop: 24 },
-  buttonText: { color: '#fffefa', fontSize: 14, fontWeight: '700' },
+  fill: { flex: 1, backgroundColor: '#e7f1fe' },
+  fallback: { flex: 1, justifyContent: 'center', backgroundColor: '#e7f1fe', padding: 28 },
+  eyebrow: { color: '#0a78f5', fontSize: 11, fontWeight: '700', letterSpacing: 1.4, marginBottom: 16 },
+  title: { color: '#011122', fontSize: 30, fontWeight: '600', letterSpacing: -1, marginBottom: 10 },
+  copy: { color: '#064893', fontSize: 15, lineHeight: 23 },
+  button: { minHeight: 48, alignItems: 'center', justifyContent: 'center', backgroundColor: '#0a78f5', borderRadius: 14, marginTop: 24 },
+  buttonText: { color: '#ffffff', fontSize: 14, fontWeight: '700' },
 });

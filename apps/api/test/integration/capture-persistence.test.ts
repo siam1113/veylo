@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto';
 import test from 'node:test';
 import Fastify from 'fastify';
 import { and, eq } from 'drizzle-orm';
-import { db, sqlClient } from '@veylo/db/client';
-import type { OriginalVersion } from '@veylo/domain';
-import { intentions } from '@veylo/db/schema';
+import { db, sqlClient } from '@clearhead/db/client';
+import type { OriginalVersion } from '@clearhead/domain';
+import { intentions } from '@clearhead/db/schema';
 import { intentionRoutes } from '../../src/routes/intentions.js';
 import type {} from '../../src/auth.js';
 

@@ -5,19 +5,19 @@ import appStyles from './styles.css?url';
 import { reportClientRenderError } from './lib/backend.client';
 
 export function links() { return [{ rel: 'stylesheet', href: appStyles }]; }
-export function meta() { return [{ title: 'Veylo — Make room for what matters' }]; }
+export function meta() { return [{ title: 'ClearHead — Make room for what matters' }]; }
 
 export function Layout({ children }: { children: ReactNode }) {
   return <html lang="en">
     <head>
       <meta charSet="utf-8" />
       <meta name="viewport" content="width=device-width, initial-scale=1" />
-      <meta id="veylo-theme-color" name="theme-color" content="#eaf0ed" />
+      <meta id="clearhead-theme-color" name="theme-color" content="#e7f1fe" />
       <link rel="manifest" href="/assets/manifest.webmanifest" />
       <link rel="icon" href="/assets/icon.svg" type="image/svg+xml" />
-      <link rel="stylesheet" href="/assets/veylo.css" />
+      <link rel="stylesheet" href="/assets/clearhead.css" />
       <link rel="stylesheet" href="/assets/status.css" />
-      <script dangerouslySetInnerHTML={{ __html: `try{var saved=localStorage.getItem('veylo-theme-v1');var sys=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';var resolved=['light','dark','sepia','midnight'].indexOf(saved)>-1?saved:sys;document.documentElement.dataset.theme=resolved;document.getElementById('veylo-theme-color').content={light:'#eaf0ed',dark:'#1e2823',sepia:'#f5efe0',midnight:'#10131c'}[resolved]}catch{document.documentElement.dataset.theme='light'}` }} />
+      <script dangerouslySetInnerHTML={{ __html: `try{var saved=localStorage.getItem('clearhead-theme-v1');var sys=matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';var resolved=['light','dark'].indexOf(saved)>-1?saved:sys;document.documentElement.dataset.theme=resolved;document.getElementById('clearhead-theme-color').content={light:'#e7f1fe',dark:'#011122'}[resolved]}catch{document.documentElement.dataset.theme='light'}try{var savedThemeName=localStorage.getItem('clearhead-theme-name-v1');if(savedThemeName)document.documentElement.dataset.themeName=savedThemeName}catch{}` }} />
       <Meta />
       <Links />
     </head>
@@ -40,7 +40,7 @@ export default function Root() {
 
 export function ErrorBoundary() {
   const error = useRouteError();
-  useEffect(() => { console.error('Veylo route render failed', error); void reportClientRenderError(error); }, [error]);
+  useEffect(() => { console.error('ClearHead route render failed', error); void reportClientRenderError(error); }, [error]);
   const message = isRouteErrorResponse(error) ? `${error.status} · ${error.statusText}` : 'A temporary issue interrupted this screen.';
-  return <main className="error-screen"><div className="brand"><span className="brand-mark"><i /><i /><i /></span><span>veylo</span></div><p className="date-label">YOUR SPACE IS STILL HERE</p><h1>Let’s try that again.</h1><p>{message}</p><small>If a thought was saved on this device, it remains available after reload.</small><button className="capture-button" onClick={() => window.location.reload()}>Reload Veylo <span>↗</span></button></main>;
+  return <main className="error-screen"><div className="brand"><span className="brand-mark"><i /><i /><i /></span><span>clearhead</span></div><p className="date-label">YOUR SPACE IS STILL HERE</p><h1>Let’s try that again.</h1><p>{message}</p><small>If a thought was saved on this device, it remains available after reload.</small><button className="capture-button" onClick={() => window.location.reload()}>Reload ClearHead <span>↗</span></button></main>;
 }

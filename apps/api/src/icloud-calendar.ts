@@ -136,5 +136,5 @@ export async function readIcloudEntries(credentials: IcloudCredentials): Promise
     return entries;
   }));
   const entries = pages.flat().sort((left, right) => (left.date ?? '').localeCompare(right.date ?? ''));
-  return { entries: entries.slice(0, 100), hasMore: entries.length > 100 || calendars.length > 5, notice: 'Upcoming 30 days from up to five iCloud calendars. Veylo only reads your events.' };
+  return { entries: entries.slice(0, 100), hasMore: entries.length > 100 || calendars.length > 5, notice: 'Upcoming 30 days from up to five iCloud calendars. ClearHead only reads your events.' };
 }

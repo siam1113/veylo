@@ -5,7 +5,7 @@ import { findAvailableSlot } from '../dist/index.js';
 const day = new Date(2026, 9, 12);
 const iso = (hour, minute = 0) => new Date(2026, 9, 12, hour, minute).toISOString();
 
-test('finds the first quarter-hour slot after calendar and Veylo commitments', () => {
+test('finds the first quarter-hour slot after calendar and ClearHead commitments', () => {
   const slot = findAvailableSlot({
     days: [day], durationMinutes: 30, now: new Date(2026, 9, 12, 8),
     busyWindows: [{ start: iso(9), end: iso(9, 30) }],

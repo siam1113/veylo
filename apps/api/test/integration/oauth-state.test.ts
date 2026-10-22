@@ -4,8 +4,8 @@ import test from 'node:test';
 import Fastify from 'fastify';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { and, eq } from 'drizzle-orm';
-import { db, sqlClient } from '@veylo/db/client';
-import { integrations, oauthStates } from '@veylo/db/schema';
+import { db, sqlClient } from '@clearhead/db/client';
+import { integrations, oauthStates } from '@clearhead/db/schema';
 import { env } from '../../src/env.js';
 import { integrationRoutes } from '../../src/routes/integrations.js';
 import type {} from '../../src/auth.js';
@@ -28,10 +28,10 @@ test('OAuth state is owner scoped and single-use; a late refresh cannot replace 
 
   env.GOOGLE_CLIENT_ID = 'google-client-id-for-test';
   env.GOOGLE_CLIENT_SECRET = 'google-client-secret-for-test';
-  env.GOOGLE_REDIRECT_URI = 'https://api.veylo.test/v1/integrations/google/callback';
+  env.GOOGLE_REDIRECT_URI = 'https://api.clearhead.test/v1/integrations/google/callback';
   env.OAUTH_STATE_SECRET = 'integration-test-state-secret-with-more-than-32-chars';
   env.TOKEN_ENCRYPTION_KEY = 'integration-test-provider-token-encryption-key';
-  env.WEB_ORIGIN = 'https://app.veylo.test';
+  env.WEB_ORIGIN = 'https://app.clearhead.test';
   globalThis.fetch = async (input) => {
     if (String(input) !== 'https://oauth2.googleapis.com/token') throw new Error(`Unexpected provider request: ${String(input)}`);
     tokenExchanges += 1;
@@ -83,7 +83,7 @@ test('OAuth state is owner scoped and single-use; a late refresh cannot replace 
     assert.equal(forwardedOAuth.get('oauth_state'), state);
     assert.equal(callbackUrl.searchParams.has('oauth_code'), false, 'provider codes stay out of request URLs and referrers');
     assert.equal(forwarded.headers['cache-control'], 'no-store');
-    assert.equal(tokenExchanges, 0, 'the provider callback must not exchange a code before the Veylo user is authenticated');
+    assert.equal(tokenExchanges, 0, 'the provider callback must not exchange a code before the ClearHead user is authenticated');
     assert.equal((await db.select().from(oauthStates).where(eq(oauthStates.ownerId, ownerId))).length, 1);
 
     const unauthenticated = await app.inject({
@@ -97,7 +97,7 @@ test('OAuth state is owner scoped and single-use; a late refresh cannot replace 
       headers: { authorization: 'Bearer other-owner-token' }, payload: { code, state },
     });
     assert.equal(wrongOwner.statusCode, 403, wrongOwner.body);
-    assert.equal(tokenExchanges, 0, 'a different Veylo account cannot exchange this provider code');
+    assert.equal(tokenExchanges, 0, 'a different ClearHead account cannot exchange this provider code');
     assert.equal((await db.select().from(oauthStates).where(eq(oauthStates.ownerId, ownerId))).length, 1,
       'a rejected account must not consume another account’s pending state');
 

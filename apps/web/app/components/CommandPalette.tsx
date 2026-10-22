@@ -86,7 +86,7 @@ export function CommandPalette({ items, kindNames, kindGlyphs, onOpenItem, onNav
   }
 
   return (
-    <Modal label="Search Veylo" onClose={onClose} className="command-palette">
+    <Modal label="Search ClearHead" onClose={onClose} className="command-palette">
       <div className="command-palette-field">
         <UiIcon name="search" />
         <input

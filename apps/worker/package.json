@@ -1,5 +1,5 @@
 {
-  "name": "@veylo/worker",
+  "name": "@clearhead/worker",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -12,8 +12,8 @@
     "eval:capture": "tsx scripts/eval-captures.ts"
   },
   "dependencies": {
-    "@veylo/db": "*",
-    "@veylo/domain": "*",
+    "@clearhead/db": "*",
+    "@clearhead/domain": "*",
     "bullmq": "^5.58.5",
     "dotenv": "^16.6.1",
     "ioredis": "^5.8.1",
