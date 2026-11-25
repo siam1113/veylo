@@ -11,3 +11,4 @@ coverage/
 *.log
 apps/mobile/ios/
 apps/mobile/android/
+client_secret_*.json
